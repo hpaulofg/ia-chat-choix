@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  choix-chat:
+    build: .
+    container_name: choix-chat
+    restart: always
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env.production
+    volumes:
+      # Persiste utilizadores e dados em `data/app-data.json`
+      - ./data:/app/data

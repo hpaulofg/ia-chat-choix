@@ -1,0 +1,268 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  /** Alinha ao fundo do painel do chat (fade acima do compositor) */
+  --background-color: #fafafa;
+  --foreground: #171717;
+  /* Contraste automático claro: texto escuro */
+  --app-text: #0a0a0a;
+  --app-text-secondary: #404040;
+  --app-text-muted: #737373;
+  --app-placeholder: #737373;
+  --app-border: rgba(0, 0, 0, 0.08);
+  --app-border-strong: rgba(0, 0, 0, 0.12);
+  --app-surface: #ffffff;
+  --app-surface-2: #fafafa;
+  --app-hover: rgba(0, 0, 0, 0.05);
+}
+
+.dark,
+html.dark {
+  --background-color: #212121;
+  --app-text: #fafafa;
+  --app-text-secondary: #e5e5e5;
+  --app-text-muted: #b0b0b0;
+  --app-placeholder: #a3a3a3;
+  --app-border: rgba(255, 255, 255, 0.1);
+  --app-border-strong: rgba(255, 255, 255, 0.14);
+  --app-surface: #303030;
+  --app-surface-2: #262626;
+  --app-hover: rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* React não coloca onClick no DOM — [onClick] em CSS não funciona; cobrimos tags e roles habituais. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label,
+select:not(:disabled),
+a[href],
+summary,
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled {
+  cursor: not-allowed;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* ProviderModelPicker: hover/focus de itens só em CSS (evita flicker com listeners nos filhos) */
+.provider-cascade-item[data-active="true"] {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--app-text);
+}
+
+.dark .provider-cascade-item[data-active="true"] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.provider-cascade-item:hover:not(:disabled):not([data-active="true"]) {
+  background: var(--app-hover);
+}
+
+.provider-cascade-item:focus-visible:not(:disabled):not([data-active="true"]) {
+  background: var(--app-hover);
+}
+
+.model-item {
+  color: var(--app-text-secondary);
+}
+
+.model-item[data-selected="true"] {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.model-item:hover:not(:disabled) {
+  background: var(--app-hover);
+}
+
+.model-item:focus-visible:not(:disabled) {
+  background: var(--app-hover);
+}
+
+.model-item:disabled {
+  cursor: not-allowed;
+}
+
+.model-item:disabled:hover {
+  background: transparent;
+}
+
+/* Compositor: fade sobre o thread + caixa glass (estilo Gemini) */
+.chat-composer-dock {
+  position: relative;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.chat-composer-dock::before {
+  content: "";
+  position: absolute;
+  top: -60px;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent, var(--background-color));
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chat-composer-dock-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.chat-composer-glass {
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  padding: 12px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.chat-composer-glass:focus-within {
+  border-color: rgba(196, 92, 42, 0.4);
+  box-shadow:
+    0 8px 36px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(196, 92, 42, 0.1);
+}
+
+.dark .chat-composer-glass,
+html.dark .chat-composer-glass {
+  background: rgba(40, 40, 40, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.dark .chat-composer-glass:focus-within,
+html.dark .chat-composer-glass:focus-within {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 8px 36px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(232, 168, 124, 0.2);
+}
+
+.chat-composer-textarea {
+  border: none;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+.chat-composer-textarea::placeholder {
+  opacity: 0.5;
+}
+
+/* Chat: três pontos discretos (sem balão) — onda suave em opacidade + leve movimento */
+@keyframes chat-thinking-wave {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.22;
+  }
+  50% {
+    transform: translate3d(0, -2px, 0);
+    opacity: 0.95;
+  }
+}
+
+.chat-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  min-height: 0;
+  padding: 2px 0 6px;
+  line-height: 0;
+}
+
+.chat-loading-dots span {
+  display: block;
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background-color: currentColor;
+  will-change: transform, opacity;
+  animation: chat-thinking-wave 0.62s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.chat-loading-dots span:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.chat-loading-dots span:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+/* Scrollbars discretos (sidebar + thread + compositor) — claro e escuro */
+.chat-app-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+.chat-app-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.chat-app-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-app-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chat-app-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.dark .chat-app-scroll,
+html.dark .chat-app-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.dark .chat-app-scroll::-webkit-scrollbar-thumb,
+html.dark .chat-app-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark .chat-app-scroll::-webkit-scrollbar-thumb:hover,
+html.dark .chat-app-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
