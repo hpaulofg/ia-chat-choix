@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import { HtmlThemeClass } from "@/components/HtmlThemeClass";
-import { THEME_STORAGE_KEY } from "@/lib/chat-storage-keys";
+import ThemeScript from "./ThemeScript";
 import "./globals.css";
-
-/** Antes de CSS/JS: aplica tema guardado; default escuro se não existir ou não for "light". */
-const themeBootstrapScript = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var v=localStorage.getItem(k);document.documentElement.classList.toggle("dark",v!=="light");}catch(e){document.documentElement.classList.add("dark");}})();`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,7 +18,8 @@ export const metadata: Metadata = {
   title: "IA - Studio Choix",
   description: "Plataforma de IA do Studio Choix.",
   icons: {
-    icon: "/favicon.svg",
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    apple: "/favicon.png",
   },
 };
 
@@ -36,11 +33,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} flex min-h-full flex-col antialiased`}
       >
-        <Script
-          id="theme-bootstrap"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: themeBootstrapScript }}
-        />
+        <ThemeScript />
         <HtmlThemeClass />
         {children}
       </body>

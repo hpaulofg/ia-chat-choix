@@ -80,7 +80,9 @@ export default function MemorySettingsPage() {
           className="flex w-full items-center justify-between rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] px-4 py-3 text-left text-sm font-bold text-[var(--app-text)] transition hover:bg-[var(--app-hover)] dark:bg-[#262626]"
         >
           <span>Perfil e contexto adicional</span>
-          <span className="text-[var(--app-text-muted)]">{showExtras ? "▲" : "▼"}</span>
+          <ChevronDownIcon
+            className={`h-4 w-4 shrink-0 text-[var(--app-text-muted)] transition-transform ${showExtras ? "rotate-180" : ""}`}
+          />
         </button>
         {showExtras ? (
           <div className="mt-3 space-y-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 dark:border-white/[0.08] dark:bg-[#2b2b2b]">
@@ -186,5 +188,19 @@ export default function MemorySettingsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

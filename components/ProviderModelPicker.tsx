@@ -39,6 +39,7 @@ export function ProviderModelPicker({
   disabled,
   variant = "default",
   className = "",
+  accent = "default",
 }: {
   providers: Row[];
   provider: string;
@@ -48,6 +49,7 @@ export function ProviderModelPicker({
   disabled: boolean;
   variant?: "default" | "cascade";
   className?: string;
+  accent?: "default" | "green";
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const cascadeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -244,7 +246,14 @@ export function ProviderModelPicker({
                       className={modelOptionBtnBase}
                     >
                       {sel ? (
-                        <span className="pointer-events-none shrink-0 text-[#2563eb] dark:text-[#60a5fa]" aria-hidden>
+                        <span
+                          className={`pointer-events-none shrink-0 ${
+                            accent === "green"
+                              ? "text-[#22c55e]"
+                              : "text-[#2563eb] dark:text-[#60a5fa]"
+                          }`}
+                          aria-hidden
+                        >
                           <CheckIconSm />
                         </span>
                       ) : (
@@ -302,7 +311,13 @@ export function ProviderModelPicker({
           className="inline-flex w-full max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-black/10 bg-[#141413] px-2 py-2 text-left shadow-sm transition hover:bg-[#2a2a2a] disabled:opacity-50 sm:w-auto sm:max-w-full sm:gap-2 sm:px-3 dark:border-white/10 dark:bg-[#1a1a1a] dark:hover:bg-[#262626]"
         >
           <span className="flex min-w-0 flex-1 flex-nowrap items-baseline gap-x-1.5 overflow-hidden text-left sm:flex-wrap sm:gap-y-0.5 sm:overflow-visible">
-            <span className="shrink-0 rounded-md bg-[#c45c2a]/25 px-1 py-0.5 text-[11px] font-bold tracking-tight text-[#fbbf24] sm:px-1.5 sm:text-[12px] dark:bg-[#c45c2a]/35 dark:text-[#fcd34d]">
+            <span
+              className={
+                accent === "green"
+                  ? "shrink-0 rounded-md bg-[#22c55e]/20 px-1 py-0.5 text-[11px] font-bold tracking-tight text-[#22c55e] sm:px-1.5 sm:text-[12px]"
+                  : "shrink-0 rounded-md bg-[#c45c2a]/25 px-1 py-0.5 text-[11px] font-bold tracking-tight text-[#fbbf24] sm:px-1.5 sm:text-[12px] dark:bg-[#c45c2a]/35 dark:text-[#fcd34d]"
+              }
+            >
               {triggerProviderName}
             </span>
             <span className="shrink-0 text-[12px] font-semibold text-white/45 dark:text-white/40 sm:text-[13px]" aria-hidden>

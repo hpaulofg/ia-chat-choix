@@ -23,6 +23,8 @@ export type ChatMessage = {
   content: string;
   attachments?: MessageAttachment[];
   usage?: MessageUsageMeta;
+  /** Epoch ms — hora de envio/receção na UI */
+  createdAt?: number;
 };
 
 export type ConversationGroup = {
@@ -42,6 +44,10 @@ export type Conversation = {
   updatedAt: number;
   messages: ChatMessage[];
   pinned?: boolean;
+  /** Conversas do chat Dev (persistidas à parte no Supabase). */
+  kind?: "dev";
+  /** Marca conversas só do modo Dev (filtro API `type=dev`). */
+  devMode?: boolean;
   /** @deprecated use projectId — mantido para migração */
   groupId?: string | null;
   projectId?: string | null;

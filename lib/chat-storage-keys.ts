@@ -13,6 +13,13 @@ export const PROVIDER_STORAGE_KEY = "ai-chat-platform-provider";
 export const MODEL_STORAGE_KEY = "ai-chat-platform-model-choice";
 export const EXPANDED_PROJECTS_KEY = "ai-chat-platform-expanded-projects";
 
+/** Modo Dev — preferências de modelo/provider separadas do chat principal. */
+export const PROVIDER_STORAGE_KEY_DEV = "ai-chat-platform-provider-dev";
+export const MODEL_STORAGE_KEY_DEV = "ai-chat-platform-model-choice-dev";
+/** Histórico local (fallback) só para conversas Dev. */
+export const CONVERSATIONS_DEV_STORAGE_KEY = "conversations-dev";
+export const ACTIVE_CONVERSATION_DEV_KEY = "ai-chat-platform-active-id-dev";
+
 /** Memória persistente (system prompt dinâmico). */
 export const COWORK_MEMORY_KEY = "ai-chat-platform-cowork-memory";
 /** Documentos gerados via /doc. */

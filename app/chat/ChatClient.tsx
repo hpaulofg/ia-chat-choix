@@ -14,20 +14,26 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { ChatAccountMenu } from "@/components/ChatAccountMenu";
+import AppNav from "@/components/AppNav";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { ProviderBrandIcon } from "@/components/ProviderBrandIcon";
 import { ProviderModelPicker } from "@/components/ProviderModelPicker";
 import { useSpeechDictation } from "@/hooks/use-speech-recognition";
 import {
+  ACTIVE_CONVERSATION_DEV_KEY,
   ACTIVE_CONVERSATION_KEY,
   GROUPS_STORAGE_KEY,
   MODEL_STORAGE_KEY,
+  MODEL_STORAGE_KEY_DEV,
   PROJECTS_STORAGE_KEY,
   PROVIDER_STORAGE_KEY,
+  PROVIDER_STORAGE_KEY_DEV,
   EXPANDED_PROJECTS_KEY,
 } from "@/lib/chat-storage-keys";
 import { parseChatCommand, docUserPrompt, type DocKind } from "@/lib/chat-commands";
+import { readAccountFullNameFromLocalStorage } from "@/lib/account-display-name-local";
 import {
+  type ConversationPersistScope,
   readConversationsFromSupabase,
   readConversationsJsonFromStorage,
   writeConversationsToSupabase,
@@ -63,6 +69,7 @@ import type {
   ConversationProject,
   MessageAttachment,
 } from "@/lib/types";
+import { DEV_SYSTEM_PROMPT } from "@/lib/dev-chat-prompt";
 import { parseUserFromEmail } from "@/lib/user-display";
 
 type ProviderRow = {
@@ -71,6 +78,29 @@ type ProviderRow = {
   models: { id: string; label: string; description?: string }[];
   configured: boolean;
 };
+
+const DEV_COMPOSER_SHORTCUTS: { label: string; text: string }[] = [
+  {
+    label: "Novo componente",
+    text: "Crie um componente React TypeScript para [descreva]",
+  },
+  {
+    label: "Criar rota API",
+    text: "Crie uma rota API Next.js em /app/api/[nome]/route.ts que [descreva]",
+  },
+  {
+    label: "Prompt Cursor",
+    text: "Gere um prompt para o Cursor AI que [descreva]",
+  },
+  {
+    label: "Revisar código",
+    text: "Revise este código e aponte melhorias: [cole o código]",
+  },
+  {
+    label: "Corrigir erro",
+    text: "Corrija este erro: [cole o erro]",
+  },
+];
 
 type PendingAttachment = {
   id: string;
@@ -306,14 +336,34 @@ function titleFromMessages(messages: ChatMessage[]): string {
   return t.length < fullLen ? `${t}…` : t || "Nova conversa";
 }
 
+function conversationTitleFromMessages(
+  messages: ChatMessage[],
+  devMode: boolean,
+): string {
+  const base = titleFromMessages(messages);
+  if (!devMode) return base;
+  const t = base.trim();
+  if (t.startsWith("[Dev]")) return base;
+  return `[Dev] ${t}`;
+}
+
 function normalizeConv(c: Conversation): Conversation {
   const projectId = c.projectId ?? c.groupId ?? null;
-  const messages = Array.isArray(c.messages) ? c.messages : [];
+  const raw = Array.isArray(c.messages) ? c.messages : [];
+  const messages = raw.map((m) => {
+    const msg = m as ChatMessage;
+    return {
+      ...msg,
+      createdAt: typeof msg.createdAt === "number" ? msg.createdAt : undefined,
+    };
+  });
+  const isDevConv = c.devMode === true || c.kind === "dev";
   return {
     id: c.id,
     title: c.title,
     updatedAt: c.updatedAt,
     pinned: Boolean(c.pinned),
+    ...(isDevConv ? { kind: "dev" as const, devMode: true as const } : {}),
     projectId,
     groupId: projectId,
     messages,
@@ -322,6 +372,31 @@ function normalizeConv(c: Conversation): Conversation {
 
 function convProjectId(c: Conversation): string | null {
   return c.projectId ?? c.groupId ?? null;
+}
+
+/** Remove conversas vazias exceto a ativa. Garante pelo menos uma conversa na lista. */
+function pruneEmptyConversationsExceptActive(
+  list: Conversation[],
+  active: string | null,
+  devMode: boolean,
+): Conversation[] {
+  const filtered = list.filter(
+    (c) => c.messages.length > 0 || (active != null && c.id === active)
+  );
+  if (filtered.length > 0) return filtered;
+  const id = uid();
+  return [
+    {
+      id,
+      title: "Nova conversa",
+      updatedAt: Date.now(),
+      messages: [],
+      pinned: false,
+      projectId: null,
+      groupId: null,
+      ...(devMode ? { kind: "dev" as const, devMode: true as const } : {}),
+    },
+  ];
 }
 
 function loadProjectsFromStorage(): ConversationProject[] {
@@ -380,9 +455,15 @@ function chatMessageToApiTurn(m: ChatMessage): {
 
 export default function ChatClient({
   defaultModel,
+  mode = "default",
 }: {
   defaultModel: string;
+  mode?: "default" | "dev";
 }) {
+  const isDev = mode === "dev";
+  const persistScope: ConversationPersistScope = isDev ? "dev" : "chat";
+  const activeConvKey = isDev ? ACTIVE_CONVERSATION_DEV_KEY : ACTIVE_CONVERSATION_KEY;
+
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<ConversationProject[]>([]);
@@ -418,6 +499,9 @@ export default function ChatClient({
   const trackerRef = useRef(new TokenTracker());
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const isNearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -437,17 +521,19 @@ export default function ChatClient({
     if (!hydrated.current) return;
     try {
       const all = conversationsRef.current;
-      void writeConversationsToSupabase(all);
       const aid = activeIdRef.current;
-      if (aid && all.some((c) => c.id === aid)) {
-        localStorage.setItem(ACTIVE_CONVERSATION_KEY, aid);
+      const pruned = pruneEmptyConversationsExceptActive(all, aid, isDev);
+      void writeConversationsToSupabase(pruned, persistScope);
+      const nextAid = aid && pruned.some((c) => c.id === aid) ? aid : pruned[0]?.id ?? null;
+      if (nextAid) {
+        localStorage.setItem(activeConvKey, nextAid);
       } else {
-        localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+        localStorage.removeItem(activeConvKey);
       }
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [activeConvKey, isDev, persistScope]);
 
   const composerFooterProviderModel = useMemo(() => {
     const row = providerRows.find((p) => p.id === provider);
@@ -469,12 +555,17 @@ export default function ChatClient({
       .then((r) => r.json())
       .then((data) => {
         const rawRows = Array.isArray(data.providers) ? data.providers : [];
-        const rows = mergeChatProviderRows(rawRows as ProviderRow[]);
+        let rows = mergeChatProviderRows(rawRows as ProviderRow[]);
+        if (isDev) {
+          rows = rows.filter((x) => x.id === "anthropic" || x.id === "openai");
+        }
         let p = "anthropic";
         let m = defaultModel;
+        const pk = isDev ? PROVIDER_STORAGE_KEY_DEV : PROVIDER_STORAGE_KEY;
+        const mk = isDev ? MODEL_STORAGE_KEY_DEV : MODEL_STORAGE_KEY;
         try {
-          const sp = localStorage.getItem(PROVIDER_STORAGE_KEY);
-          const sm = localStorage.getItem(MODEL_STORAGE_KEY);
+          const sp = localStorage.getItem(pk);
+          const sm = localStorage.getItem(mk);
           const bySaved = rows.find((x: ProviderRow) => x.id === sp);
           if (bySaved && bySaved.models.length > 0) {
             p = sp!;
@@ -500,7 +591,7 @@ export default function ChatClient({
         setProvidersLoaded(true);
       })
       .catch(() => setProvidersLoaded(true));
-  }, [defaultModel]);
+  }, [defaultModel, isDev]);
 
   const speech = useSpeechDictation(setInput);
 
@@ -510,11 +601,13 @@ export default function ChatClient({
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return;
         if (typeof d.email === "string" && d.email) setAccountEmail(d.email);
-        if (typeof d.fullName === "string" && d.fullName.trim()) {
-          setAccountFullName(d.fullName.trim());
-        } else {
-          setAccountFullName(null);
+        let fn = typeof d.fullName === "string" ? d.fullName.trim() : "";
+        if (!fn && typeof d.email === "string" && d.email.trim()) {
+          const fromLs = readAccountFullNameFromLocalStorage(d.email);
+          if (fromLs) fn = fromLs;
         }
+        if (fn) setAccountFullName(fn);
+        else setAccountFullName(null);
       })
       .catch(() => {})
       .finally(() => {
@@ -564,12 +657,14 @@ export default function ChatClient({
   useEffect(() => {
     if (!providersLoaded) return;
     try {
-      localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
-      localStorage.setItem(MODEL_STORAGE_KEY, model);
+      const pk = isDev ? PROVIDER_STORAGE_KEY_DEV : PROVIDER_STORAGE_KEY;
+      const mk = isDev ? MODEL_STORAGE_KEY_DEV : MODEL_STORAGE_KEY;
+      localStorage.setItem(pk, provider);
+      localStorage.setItem(mk, model);
     } catch {
       /* ignore */
     }
-  }, [provider, model, providersLoaded]);
+  }, [provider, model, providersLoaded, isDev]);
 
   useEffect(() => {
     function onFocus() {
@@ -579,6 +674,7 @@ export default function ChatClient({
     }
     function onLsUpdate() {
       loadProviders();
+      refreshAccountFromSession(false);
     }
     window.addEventListener("focus", onFocus);
     window.addEventListener("storage", onLsUpdate);
@@ -605,13 +701,13 @@ export default function ChatClient({
       let raw: string | null = null;
       let aidLs: string | null = null;
       try {
-        raw = readConversationsJsonFromStorage();
-        aidLs = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+        raw = readConversationsJsonFromStorage(persistScope);
+        aidLs = localStorage.getItem(activeConvKey);
       } catch {
         /* ignore */
       }
       try {
-        const remote = await readConversationsFromSupabase();
+        const remote = await readConversationsFromSupabase(persistScope);
         if (remote && Array.isArray(remote) && remote.length) {
           const persistent = remote.map((c) => normalizeConv(c as Conversation));
           setConversations(persistent);
@@ -646,28 +742,40 @@ export default function ChatClient({
         pinned: false,
         projectId: null,
         groupId: null,
+        ...(isDev ? { kind: "dev" as const, devMode: true as const } : {}),
       };
       setConversations([empty]);
       setActiveId(id);
       hydrated.current = true;
     })();
-  }, []);
+  }, [activeConvKey, isDev, persistScope]);
 
   useEffect(() => {
     if (!hydrated.current) return;
-    void writeConversationsToSupabase(conversations);
+    const pruned = pruneEmptyConversationsExceptActive(conversations, activeId, isDev);
+    const unchanged =
+      pruned.length === conversations.length &&
+      pruned.every((c, i) => c.id === conversations[i]?.id);
+    if (!unchanged) {
+      setConversations(pruned);
+      if (!activeId || !pruned.some((c) => c.id === activeId)) {
+        setActiveId(pruned[0]?.id ?? null);
+      }
+      return;
+    }
+    void writeConversationsToSupabase(pruned, persistScope);
     if (activeId) {
       try {
-        if (conversations.some((c) => c.id === activeId)) {
-          localStorage.setItem(ACTIVE_CONVERSATION_KEY, activeId);
+        if (pruned.some((c) => c.id === activeId)) {
+          localStorage.setItem(activeConvKey, activeId);
         } else {
-          localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+          localStorage.removeItem(activeConvKey);
         }
       } catch {
         /* ignore */
       }
     }
-  }, [conversations, activeId]);
+  }, [activeConvKey, conversations, activeId, isDev, persistScope]);
 
   useEffect(() => {
     function onBeforeUnload() {
@@ -691,6 +799,21 @@ export default function ChatClient({
   }, [flushConversationsPersist]);
 
   useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    function onScroll() {
+      if (!el) return;
+      const threshold = 120;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+      isNearBottomRef.current = atBottom;
+      setUserScrolledUp(!atBottom);
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isNearBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [active?.messages, loading]);
 
@@ -790,13 +913,13 @@ export default function ChatClient({
           return {
             ...c,
             messages,
-            title: titleFromMessages(messages),
+            title: conversationTitleFromMessages(messages, isDev),
             updatedAt: Date.now(),
           };
         })
       );
     },
-    [activeId]
+    [activeId, isDev]
   );
 
   const runChatStream = useCallback(
@@ -811,7 +934,9 @@ export default function ChatClient({
       signal: AbortSignal;
     }) => {
       const { asstId, history, docSaveMeta, signal } = opts;
-      const system = buildSystemPrompt(loadCoworkMemory(), provider);
+      const system = isDev
+        ? DEV_SYSTEM_PROMPT
+        : buildSystemPrompt(loadCoworkMemory(), provider);
       let streamed = "";
 
       try {
@@ -949,7 +1074,7 @@ export default function ChatClient({
         setLoading(false);
       }
     },
-    [model, provider, updateActiveMessages]
+    [isDev, model, provider, updateActiveMessages]
   );
 
   const copyMessageContent = useCallback((messageId: string, text: string) => {
@@ -988,20 +1113,19 @@ export default function ChatClient({
             return {
               ...c,
               messages: truncated,
-              title: titleFromMessages(truncated),
+              title: conversationTitleFromMessages(truncated, isDev),
               updatedAt: Date.now(),
             };
           })
         );
       });
 
-      setActiveId(conversationId);
       setInput(content);
       queueMicrotask(() => {
         textareaRef.current?.focus();
       });
     },
-    [loading]
+    [isDev, loading]
   );
 
   const regenerateAssistant = useCallback(
@@ -1023,10 +1147,15 @@ export default function ChatClient({
                 ...c,
                 messages: [
                   ...truncated,
-                  { id: newAsstId, role: "assistant", content: "" },
+                  {
+                    id: newAsstId,
+                    role: "assistant",
+                    content: "",
+                    createdAt: Date.now(),
+                  },
                 ],
                 updatedAt: Date.now(),
-                title: titleFromMessages(truncated),
+                title: conversationTitleFromMessages(truncated, isDev),
               }
             : c
         )
@@ -1043,7 +1172,7 @@ export default function ChatClient({
         signal: ac.signal,
       });
     },
-    [activeId, loading, runChatStream]
+    [activeId, isDev, loading, runChatStream]
   );
 
   const newChat = useCallback(() => {
@@ -1062,9 +1191,24 @@ export default function ChatClient({
       pinned: false,
       projectId: null,
       groupId: null,
+      ...(isDev ? { kind: "dev" as const, devMode: true as const } : {}),
     };
     setConversations((prev) => [conv, ...prev]);
     setActiveId(id);
+    setOpenConvMenuId(null);
+  }, [isDev]);
+
+  const switchConversation = useCallback((nextId: string) => {
+    setConversations((prev) => {
+      const cur = activeIdRef.current;
+      if (cur == null || cur === nextId) return prev;
+      const currentConv = prev.find((x) => x.id === cur);
+      if (currentConv && currentConv.messages.length === 0) {
+        return prev.filter((x) => x.id !== cur);
+      }
+      return prev;
+    });
+    setActiveId(nextId);
     setOpenConvMenuId(null);
   }, []);
 
@@ -1105,12 +1249,13 @@ export default function ChatClient({
             pinned: false,
             projectId: null,
             groupId: null,
+            ...(isDev ? { kind: "dev" as const, devMode: true as const } : {}),
           },
         ];
       }
       return next;
     });
-  }, []);
+  }, [isDev]);
 
   const togglePin = useCallback((id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1295,7 +1440,13 @@ export default function ChatClient({
         return;
       }
       const payload = cmd.payload.trim();
-      const userMsg: ChatMessage = { id: uid(), role: "user", content: userText };
+      const now = Date.now();
+      const userMsg: ChatMessage = {
+        id: uid(),
+        role: "user",
+        content: userText,
+        createdAt: now,
+      };
       const asstId = uid();
       let feedback: string;
       if (payload) {
@@ -1307,7 +1458,7 @@ export default function ChatClient({
       updateActiveMessages((m) => [
         ...m,
         userMsg,
-        { id: asstId, role: "assistant", content: feedback },
+        { id: asstId, role: "assistant", content: feedback, createdAt: Date.now() },
       ]);
       setInput("");
       return;
@@ -1329,7 +1480,9 @@ export default function ChatClient({
 
     const displayContent =
       userText ||
-      (atSnapshot.length ? `📎 ${atSnapshot.map((a) => a.name).join(", ")}` : "");
+      (atSnapshot.length
+        ? `Anexos: ${atSnapshot.map((a) => a.name).join(", ")}`
+        : "");
 
     const docContextHint =
       cmd.kind === "doc"
@@ -1356,17 +1509,20 @@ export default function ChatClient({
           }
         : null;
 
+    const now = Date.now();
     const userMsg: ChatMessage = {
       id: uid(),
       role: "user",
       content: displayContent,
       attachments: persisted.length ? persisted : undefined,
+      createdAt: now,
     };
     const asstId = uid();
     const asstPlaceholder: ChatMessage = {
       id: asstId,
       role: "assistant",
       content: "",
+      createdAt: Date.now(),
     };
 
     updateActiveMessages((m) => [...m, userMsg, asstPlaceholder]);
@@ -1441,7 +1597,11 @@ export default function ChatClient({
     : greetingName
       ? `${timeOfDayGreeting()}, ${greetingName}`
       : `${timeOfDayGreeting()}!`;
-  const composerPlaceholder = emptyChat ? "Como posso ajudar?" : "Responder...";
+  const composerPlaceholder = isDev
+    ? "Descreva o que precisa construir, cole um erro ou peça um prompt para o Cursor..."
+    : emptyChat
+      ? "Como posso ajudar?"
+      : "Responder...";
 
   function renderConvRow(c: Conversation) {
     const isActive = c.id === activeId;
@@ -1451,8 +1611,12 @@ export default function ChatClient({
         key={c.id}
         className={`relative rounded-xl transition-colors ${
           isActive
-            ? "bg-black/[0.07] dark:bg-white/[0.1]"
-            : "hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
+            ? isDev
+              ? "bg-[#22c55e]/15 ring-1 ring-[#22c55e]/25"
+              : "bg-black/[0.07] dark:bg-white/[0.1]"
+            : isDev
+              ? "hover:bg-[#161b22]"
+              : "hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
         }`}
       >
         {isRenaming ? (
@@ -1472,7 +1636,11 @@ export default function ChatClient({
                 }
                 if (e.key === "Escape") setRenamingConvId(null);
               }}
-              className="w-full rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-surface)] px-2.5 py-2 text-[13px] font-medium text-[var(--app-text)] outline-none focus-visible:ring-2 focus-visible:ring-[#c45c2a]/35 dark:bg-[#1f1f1f]"
+              className={`w-full rounded-lg border px-2.5 py-2 text-[13px] font-medium outline-none focus-visible:ring-2 ${
+                isDev
+                  ? "border-[#30363d] bg-[#161b22] font-sans text-[#e6edf3] focus-visible:ring-[#22c55e]/40"
+                  : "border-[var(--app-border-strong)] bg-[var(--app-surface)] text-[var(--app-text)] focus-visible:ring-[#c45c2a]/35 dark:bg-[#1f1f1f]"
+              }`}
               aria-label="Novo nome da conversa"
             />
             <div className="mt-2 flex flex-wrap gap-2">
@@ -1498,23 +1666,28 @@ export default function ChatClient({
               role="button"
               tabIndex={0}
               onClick={() => {
-                setActiveId(c.id);
-                setOpenConvMenuId(null);
+                switchConversation(c.id);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  setActiveId(c.id);
-                  setOpenConvMenuId(null);
+                  switchConversation(c.id);
                 }
               }}
               className="flex cursor-pointer items-center gap-1 px-2 py-2.5 pr-1 text-left"
             >
               <span
-                className="min-w-0 flex-1 truncate text-[13px] font-medium leading-snug text-[var(--app-text)]"
+                className={`flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium leading-snug ${
+                  isDev ? "font-mono text-[#e6edf3]" : "text-[var(--app-text)]"
+                }`}
                 title={c.title}
               >
-                {c.title}
+                {isDev ? (
+                  <span className="shrink-0 rounded bg-[#22c55e]/20 px-1 py-0.5 text-[10px] font-bold text-[#22c55e]">
+                    [Dev]
+                  </span>
+                ) : null}
+                <span className="min-w-0 truncate">{c.title}</span>
               </span>
               <button
                 type="button"
@@ -1626,7 +1799,11 @@ export default function ChatClient({
 
   function sectionTitle(t: string) {
     return (
-      <div className="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-muted)] first:pt-1">
+      <div
+        className={`px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider first:pt-1 ${
+          isDev ? "font-mono text-[#6e7681]" : "text-[var(--app-text-muted)]"
+        }`}
+      >
         {t}
       </div>
     );
@@ -1634,7 +1811,13 @@ export default function ChatClient({
 
   return (
     <>
-    <div className="flex h-[100dvh] w-full max-w-full min-w-0 overflow-hidden overflow-x-hidden bg-[#fafafa] text-[var(--app-text)] transition-colors duration-200 dark:bg-[#212121]">
+    <div
+      className={`flex h-[100dvh] w-full max-w-full min-w-0 overflow-hidden overflow-x-hidden transition-colors duration-200 ${
+        isDev
+          ? "bg-[#0d1117] text-[#e6edf3]"
+          : "bg-[#fafafa] text-[var(--app-text)] dark:bg-[#212121]"
+      }`}
+    >
       {sidebarOpen ? (
         <button
           type="button"
@@ -1644,8 +1827,12 @@ export default function ChatClient({
         />
       ) : null}
       <aside
-        className={`flex min-h-0 flex-col border-r border-[var(--app-border)] bg-[#f4f4f4] dark:bg-[#171717]
-          fixed inset-y-0 left-0 z-40 h-[100dvh] w-[min(280px,calc(100vw-2.5rem))] max-w-[280px] transition-transform duration-300 ease-out
+        className={`flex min-h-0 flex-col border-r fixed inset-y-0 left-0 z-40 h-[100dvh] w-[min(280px,calc(100vw-2.5rem))] max-w-[280px] transition-transform duration-300 ease-out
+          ${
+            isDev
+              ? "border-[#30363d] bg-[#0d1117]"
+              : "border-[var(--app-border)] bg-[#f4f4f4] dark:bg-[#171717]"
+          }
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none md:pointer-events-auto"}
           md:relative md:inset-auto md:z-auto md:h-auto md:max-w-none md:shrink-0 md:transition-[width,opacity,transform]
           ${
@@ -1654,10 +1841,27 @@ export default function ChatClient({
               : "md:w-0 md:translate-x-[-4px] md:overflow-hidden md:opacity-0"
           }`}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 py-2 dark:border-white/[0.08]">
-          <span className="flex items-center gap-2 truncate text-sm font-bold tracking-tight text-[var(--app-text)]">
-            <ChatBubbleIcon />
-            Conversas
+        <div
+          className={`flex items-center justify-between gap-2 border-b px-3 py-2 ${
+            isDev ? "border-[#30363d]" : "border-[var(--app-border)] dark:border-white/[0.08]"
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-2 truncate text-sm font-bold tracking-tight text-[var(--app-text)]">
+            {isDev ? (
+              <>
+                <span className="shrink-0 font-mono text-[13px] text-[#22c55e]" aria-hidden>
+                  &lt;/&gt;
+                </span>
+                <span className="truncate font-mono text-xs font-bold uppercase tracking-wider text-[#8b949e]">
+                  Histórico de Código
+                </span>
+              </>
+            ) : (
+              <>
+                <ChatBubbleIcon />
+                <span className="truncate">Conversas</span>
+              </>
+            )}
           </span>
           <button
             type="button"
@@ -1672,10 +1876,14 @@ export default function ChatClient({
           <button
             type="button"
             onClick={newChat}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--app-border-strong)] bg-[#141413] py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2d2d2d] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+            className={`flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold shadow-sm transition ${
+              isDev
+                ? "border-[#22c55e]/50 bg-[#22c55e] font-mono text-[#0d1117] hover:bg-[#16a34a]"
+                : "border-[var(--app-border-strong)] bg-[#141413] text-white hover:bg-[#2d2d2d] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+            }`}
           >
             <PlusIcon />
-            Nova conversa
+            {isDev ? "Nova sessão" : "Nova conversa"}
           </button>
           <div className="relative">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-text-muted)]" />
@@ -1683,8 +1891,12 @@ export default function ChatClient({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Procurar conversas…"
-              className="w-full rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] py-2.5 pl-9 pr-3 text-sm font-medium text-[var(--app-text)] placeholder:text-[var(--app-placeholder)] outline-none transition focus:border-[#c45c2a]/50 focus:ring-2 focus:ring-[#c45c2a]/20 dark:bg-[#262626]"
+              placeholder={isDev ? "Procurar no histórico…" : "Procurar conversas…"}
+              className={`w-full rounded-xl border py-2.5 pl-9 pr-3 text-sm font-medium outline-none transition ${
+                isDev
+                  ? "border-[#30363d] bg-[#161b22] font-sans text-[#e6edf3] placeholder:text-[#6e7681] focus:border-[#22c55e]/50 focus:ring-2 focus:ring-[#22c55e]/20"
+                  : "border-[var(--app-border-strong)] bg-[var(--app-surface)] text-[var(--app-text)] placeholder:text-[var(--app-placeholder)] focus:border-[#c45c2a]/50 focus:ring-2 focus:ring-[#c45c2a]/20 dark:bg-[#262626]"
+              }`}
             />
           </div>
         </div>
@@ -1824,46 +2036,89 @@ export default function ChatClient({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden bg-transparent">
-        <header className="flex h-12 min-w-0 shrink-0 items-center gap-1.5 border-b border-[var(--app-border)] bg-transparent px-2 sm:gap-2 sm:px-3">
-          {!sidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="shrink-0 rounded-lg p-2 text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)]"
-              aria-label="Abrir menu"
+        <header
+          className={`flex min-h-12 min-w-0 shrink-0 items-center justify-between gap-2 border-b px-2 py-1 sm:px-3 ${
+            isDev ? "border-[#30363d] bg-[#0d1117]" : "border-[var(--app-border)] bg-transparent"
+          }`}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {!sidebarOpen && (
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className="shrink-0 rounded-lg p-2 text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)]"
+                aria-label="Abrir menu"
+              >
+                <MenuIcon />
+              </button>
+            )}
+            <span
+              className={`hidden min-w-0 flex-1 items-center gap-2 overflow-hidden text-left text-sm font-semibold lg:flex ${
+                isDev ? "font-mono text-[#e6edf3]" : "text-[var(--app-text)]"
+              }`}
+              title={
+                isDev
+                  ? "Assistente de Código — CHOIX"
+                  : `${composerFooterProviderModel.providerShort} — ${composerFooterProviderModel.modelLabel}`
+              }
             >
-              <MenuIcon />
-            </button>
-          )}
-          <span
-            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left text-sm font-semibold text-[var(--app-text)] sm:justify-start sm:text-left"
-            title={`${composerFooterProviderModel.providerShort} — ${composerFooterProviderModel.modelLabel}`}
-          >
-            <ProviderBrandIcon
-              providerId={provider}
-              className="h-5 w-5 shrink-0 text-[var(--app-text)]"
-            />
-            <span className="min-w-0 truncate sm:max-w-none">{headerProviderName}</span>
-          </span>
+              {isDev ? (
+                <>
+                  <span
+                    className="shrink-0 font-mono text-lg leading-none text-[#22c55e]"
+                    aria-hidden
+                  >
+                    &lt;/&gt;
+                  </span>
+                  <span className="min-w-0 truncate tracking-tight">Assistente de Código</span>
+                </>
+              ) : (
+                <>
+                  <ProviderBrandIcon
+                    providerId={provider}
+                    className="h-5 w-5 shrink-0 text-[var(--app-text)]"
+                  />
+                  <span className="min-w-0 truncate">{headerProviderName}</span>
+                </>
+              )}
+            </span>
+          </div>
+          <div className="min-w-0 shrink-0 overflow-x-auto py-0.5">
+            <AppNav />
+          </div>
         </header>
 
-        <main className="relative z-0 flex min-h-0 flex-1 flex-col bg-transparent">
+        <main className={`relative z-0 flex min-h-0 flex-1 flex-col ${isDev ? "bg-[#0d1117]" : "bg-transparent"}`}>
           <div
-            className={`chat-app-scroll relative z-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent px-3 py-6 sm:px-6 ${emptyChat ? "flex flex-col" : ""}`}
+            ref={scrollContainerRef}
+            className={`chat-app-scroll relative z-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 sm:px-6 ${
+              isDev ? "bg-[#0d1117]" : "bg-transparent"
+            } ${emptyChat ? "flex flex-col" : ""}`}
           >
             <div
               className={`mx-auto flex w-full max-w-3xl flex-col gap-6 ${emptyChat ? "min-h-0 flex-1 justify-center" : ""}`}
             >
               {emptyChat ? (
-                <div className="px-2 text-center">
-                  <p className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
-                    {greetingHeadline}
-                    <br />
-                    <span className="text-[var(--app-text-secondary)]">
-                      Como posso ajudar você hoje?
-                    </span>
-                  </p>
-                </div>
+                isDev ? (
+                  <div className="px-2 text-center font-mono">
+                    <p className="text-xl font-semibold tracking-tight text-[#e6edf3] sm:text-2xl">
+                      Pronto para construir
+                    </p>
+                    <p className="mt-3 text-sm leading-relaxed text-[#8b949e]">
+                      Next.js · TypeScript · APIs · prompts para o Cursor
+                    </p>
+                  </div>
+                ) : (
+                  <div className="px-2 text-center">
+                    <p className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
+                      {greetingHeadline}
+                      <br />
+                      <span className="text-[var(--app-text-secondary)]">
+                        Como posso ajudar você hoje?
+                      </span>
+                    </p>
+                  </div>
+                )
               ) : null}
               {(active?.messages ?? []).map((m) => {
                 const thread = active?.messages ?? [];
@@ -1873,6 +2128,8 @@ export default function ChatClient({
                   m.role === "assistant" &&
                   m.id === lastId &&
                   !m.content.trim();
+                const isStreamingThisMsg =
+                  loading && m.role === "assistant" && m.id === lastId;
                 const userHoverActions =
                   "pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-100";
 
@@ -1884,83 +2141,101 @@ export default function ChatClient({
                     }`}
                   >
                     {m.role === "user" ? (
-                      <div className="flex w-full max-w-full justify-end">
-                        <div className="flex max-w-full items-end gap-1.5">
-                          <div
-                            className={`flex shrink-0 flex-row items-center gap-0.5 rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] px-1 py-1 shadow-sm dark:border-white/[0.12] dark:bg-[#2a2a2a] ${userHoverActions}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => copyMessageContent(m.id, m.content)}
-                              title={copiedMsgId === m.id ? "Copiado" : "Copiar"}
-                              aria-label={copiedMsgId === m.id ? "Copiado" : "Copiar mensagem"}
-                              className="rounded-md p-1.5 text-[var(--app-text-muted)] transition hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
+                      <div className="flex w-full max-w-full flex-col items-end gap-1">
+                        <div className="flex max-w-full justify-end">
+                          <div className="flex max-w-full items-end gap-1.5">
+                            <div
+                              className={`flex shrink-0 flex-row items-center gap-0.5 rounded-lg border px-1 py-1 shadow-sm ${userHoverActions} ${
+                                isDev
+                                  ? "border-[#30363d] bg-[#161b22]"
+                                  : "border-[var(--app-border-strong)] bg-[var(--app-surface-2)] dark:border-white/[0.12] dark:bg-[#2a2a2a]"
+                              }`}
                             >
-                              {copiedMsgId === m.id ? (
-                                <MessageActionCheckIcon className="h-[17px] w-[17px]" />
-                              ) : (
-                                <CopyMessageIcon className="h-[17px] w-[17px]" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={loading}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                if (active?.id) editUserMessage(m.id, active.id);
-                              }}
-                              title="Editar pergunta"
-                              aria-label="Editar pergunta"
-                              className="rounded-md p-1.5 text-[var(--app-text-muted)] transition hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] disabled:opacity-40 dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
-                            >
-                              <PencilEditIcon className="h-[17px] w-[17px]" />
-                            </button>
-                          </div>
-                          <div
-                            className={`min-w-0 max-w-[min(100%,42rem)] rounded-2xl px-4 py-3 shadow-sm ${
-                              "bg-[#141413] text-[#fafafa] dark:bg-[#303030] dark:text-[#ececec]"
-                            }`}
-                          >
-                            {m.attachments && m.attachments.length > 0 ? (
-                              <div className="mb-2 flex flex-wrap gap-2">
-                                {m.attachments.map((att) =>
-                                  att.type.toLowerCase().startsWith("image/") ? (
-                                    <button
-                                      key={att.id}
-                                      type="button"
-                                      onClick={() =>
-                                        setMediaLightbox({
-                                          url: `data:${att.type};base64,${att.base64}`,
-                                          name: att.name,
-                                        })
-                                      }
-                                      className="overflow-hidden rounded-lg border border-white/15 outline-none transition hover:ring-2 hover:ring-[#c45c2a]/40 focus-visible:ring-2 focus-visible:ring-[#c45c2a]/50"
-                                    >
-                                      {/* eslint-disable-next-line @next/next/no-img-element -- base64 do histórico */}
-                                      <img
-                                        src={`data:${att.type};base64,${att.base64}`}
-                                        alt=""
-                                        className="max-h-32 max-w-[220px] object-cover"
-                                      />
-                                    </button>
-                                  ) : (
-                                    <span
-                                      key={att.id}
-                                      className="inline-flex max-w-full items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-left text-xs font-medium"
-                                    >
-                                      <span aria-hidden>📄</span>
-                                      <span className="truncate">{att.name}</span>
-                                    </span>
-                                  )
+                              <button
+                                type="button"
+                                onClick={() => copyMessageContent(m.id, m.content)}
+                                title={copiedMsgId === m.id ? "Copiado" : "Copiar"}
+                                aria-label={copiedMsgId === m.id ? "Copiado" : "Copiar mensagem"}
+                                className={`rounded-md p-1.5 transition ${
+                                  isDev
+                                    ? "text-[#8b949e] hover:bg-[#21262d] hover:text-[#22c55e]"
+                                    : "text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
+                                }`}
+                              >
+                                {copiedMsgId === m.id ? (
+                                  <MessageActionCheckIcon className="h-[17px] w-[17px]" />
+                                ) : (
+                                  <CopyMessageIcon className="h-[17px] w-[17px]" />
                                 )}
-                              </div>
-                            ) : null}
-                            {m.content.trim() ? (
-                              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
-                                {m.content}
-                              </p>
-                            ) : null}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={loading}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  if (active?.id) editUserMessage(m.id, active.id);
+                                }}
+                                title="Editar pergunta"
+                                aria-label="Editar pergunta"
+                                className={`rounded-md p-1.5 transition disabled:opacity-40 ${
+                                  isDev
+                                    ? "text-[#8b949e] hover:bg-[#21262d] hover:text-[#22c55e]"
+                                    : "text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
+                                }`}
+                              >
+                                <PencilEditIcon className="h-[17px] w-[17px]" />
+                              </button>
+                            </div>
+                            <div
+                              className={`min-w-0 max-w-[min(100%,42rem)] rounded-2xl px-4 py-3 font-sans text-[15px] shadow-sm ${
+                                isDev
+                                  ? "bg-[#21262d] text-[#e6edf3] ring-1 ring-[#30363d]"
+                                  : "bg-[#141413] text-[#fafafa] dark:bg-[#303030] dark:text-[#ececec]"
+                              }`}
+                            >
+                              {m.attachments && m.attachments.length > 0 ? (
+                                <div className="mb-2 flex flex-wrap gap-2">
+                                  {m.attachments.map((att) =>
+                                    att.type.toLowerCase().startsWith("image/") ? (
+                                      <button
+                                        key={att.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setMediaLightbox({
+                                            url: `data:${att.type};base64,${att.base64}`,
+                                            name: att.name,
+                                          })
+                                        }
+                                        className={`overflow-hidden rounded-lg border border-white/15 outline-none transition focus-visible:ring-2 ${
+                                          isDev
+                                            ? "hover:ring-2 hover:ring-[#22c55e]/50 focus-visible:ring-[#22c55e]/50"
+                                            : "hover:ring-2 hover:ring-[#c45c2a]/40 focus-visible:ring-[#c45c2a]/50"
+                                        }`}
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element -- base64 do histórico */}
+                                        <img
+                                          src={`data:${att.type};base64,${att.base64}`}
+                                          alt=""
+                                          className="max-h-32 max-w-[220px] object-cover"
+                                        />
+                                      </button>
+                                    ) : (
+                                      <span
+                                        key={att.id}
+                                        className="inline-flex max-w-full items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-left text-xs font-medium"
+                                      >
+                                        <FileDocSmIcon className="h-3.5 w-3.5 shrink-0 opacity-90" />
+                                        <span className="truncate">{att.name}</span>
+                                      </span>
+                                    )
+                                  )}
+                                </div>
+                              ) : null}
+                              {m.content.trim() ? (
+                                <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1968,7 +2243,9 @@ export default function ChatClient({
                       <>
                         {streamingDots ? (
                           <div
-                            className="chat-loading-dots w-full max-w-[min(100%,42rem)] text-[var(--app-text-muted)] dark:text-white/45"
+                            className={`chat-loading-dots w-full max-w-[min(100%,42rem)] ${
+                              isDev ? "text-[#6e7681]" : "text-[var(--app-text-muted)] dark:text-white/45"
+                            }`}
                             aria-label="A gerar resposta"
                             aria-live="polite"
                           >
@@ -1977,23 +2254,45 @@ export default function ChatClient({
                             <span />
                           </div>
                         ) : (
-                          <div className="w-full max-w-[min(100%,42rem)] px-0.5 sm:px-1">
+                          <div
+                            className={`w-full max-w-[min(100%,42rem)] ${
+                              isDev
+                                ? "border-l-2 border-green-500 pl-3"
+                                : "px-0.5 sm:px-1"
+                            }`}
+                          >
                             <MarkdownMessage
                               content={m.content}
+                              variant={isDev ? "codeStudio" : "default"}
+                              streaming={isStreamingThisMsg}
                               className={
-                                m.content ? "" : "italic text-[#737373] dark:text-[#a3a3a3]"
+                                m.content
+                                  ? isDev
+                                    ? "text-[#e6edf3]"
+                                    : ""
+                                  : isDev
+                                    ? "italic text-[#6e7681]"
+                                    : "italic text-[#737373] dark:text-[#a3a3a3]"
                               }
                             />
                           </div>
                         )}
                         {!streamingDots ? (
-                          <div className="mt-1.5 flex w-full max-w-[min(100%,42rem)] items-center justify-start gap-1 px-0.5 sm:px-1">
+                          <div
+                            className={`mt-1.5 flex w-full max-w-[min(100%,42rem)] items-center justify-start gap-1 ${
+                              isDev ? "pl-3" : "px-0.5 sm:px-1"
+                            }`}
+                          >
                             <button
                               type="button"
                               onClick={() => copyMessageContent(m.id, m.content)}
                               title={copiedMsgId === m.id ? "Copiado" : "Copiar"}
                               aria-label={copiedMsgId === m.id ? "Copiado" : "Copiar mensagem"}
-                              className="rounded-lg p-1.5 text-[var(--app-text-muted)] transition hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white/90"
+                              className={`rounded-lg p-1.5 transition ${
+                                isDev
+                                  ? "text-[#6e7681] hover:bg-[#161b22] hover:text-[#22c55e]"
+                                  : "text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white/90"
+                              }`}
                             >
                               {copiedMsgId === m.id ? (
                                 <MessageActionCheckIcon className="h-[17px] w-[17px]" />
@@ -2007,7 +2306,11 @@ export default function ChatClient({
                               onClick={() => regenerateAssistant(m.id)}
                               title="Regenerar resposta"
                               aria-label="Regenerar resposta"
-                              className="rounded-lg p-1.5 text-[var(--app-text-muted)] transition hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] disabled:opacity-40 dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white/90"
+                              className={`rounded-lg p-1.5 transition disabled:opacity-40 ${
+                                isDev
+                                  ? "text-[#6e7681] hover:bg-[#161b22] hover:text-[#22c55e]"
+                                  : "text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white/90"
+                              }`}
                             >
                               <RegenerateIcon className="h-[17px] w-[17px]" />
                             </button>
@@ -2022,9 +2325,60 @@ export default function ChatClient({
             </div>
           </div>
 
-          <div className="chat-composer-dock z-30 min-w-0 shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-1 sm:px-6 sm:pb-5">
+          <div
+            className={`chat-composer-dock relative z-30 min-w-0 shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-1 sm:px-6 sm:pb-5 ${
+              isDev ? "border-t border-[#30363d] bg-[#0d1117]" : ""
+            }`}
+            style={
+              isDev
+                ? ({ "--composer-fade-color": "#0d1117" } as CSSProperties)
+                : undefined
+            }
+          >
+            {userScrolledUp ? (
+              <div className="pointer-events-none absolute bottom-[calc(100%+8px)] left-0 right-0 z-40 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    isNearBottomRef.current = true;
+                    setUserScrolledUp(false);
+                    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-[var(--app-border-strong)] bg-[var(--app-surface)] text-[var(--app-text-secondary)] shadow-lg transition hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] dark:border-white/[0.12] dark:bg-[#2a2a2a]"
+                  aria-label="Ir para o fim"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M12 5v14M5 15l7 7 7-7"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
             <div className="chat-composer-dock-inner mx-auto max-w-3xl min-w-0">
               <div className="chat-composer-glass min-w-0 max-w-full overflow-hidden">
+                {isDev ? (
+                  <div className="mb-2 flex flex-wrap gap-1.5 border-b border-[#30363d] pb-2">
+                    {DEV_COMPOSER_SHORTCUTS.map((s) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => {
+                          setInput(s.text);
+                          queueMicrotask(() => textareaRef.current?.focus());
+                        }}
+                        className="rounded-full border border-[#30363d] bg-[#161b22] px-2.5 py-1 font-mono text-[10px] font-semibold text-[#8b949e] transition hover:border-[#22c55e]/45 hover:text-[#22c55e] disabled:opacity-40"
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {pendingAttachments.length > 0 ? (
                   <div className="mb-2 flex flex-wrap gap-2 border-b border-[var(--app-border)] pb-2 dark:border-white/[0.12]">
                     {pendingAttachments.map((a) =>
@@ -2062,8 +2416,12 @@ export default function ChatClient({
                           key={a.id}
                           className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] px-2.5 py-1 text-xs font-medium text-[var(--app-text)] dark:bg-black/25"
                         >
-                          <span aria-hidden className="shrink-0">
-                            {a.type === "application/pdf" ? "📄" : "📎"}
+                          <span aria-hidden className="inline-flex shrink-0">
+                            {a.type === "application/pdf" ? (
+                              <FileDocSmIcon className="h-3.5 w-3.5" />
+                            ) : (
+                              <PaperclipSmIcon className="h-3.5 w-3.5" />
+                            )}
                           </span>
                           <span className="truncate">{a.name}</span>
                           <button
@@ -2091,10 +2449,24 @@ export default function ChatClient({
                     }
                   }}
                   onPaste={(e) => void onComposerPaste(e)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                      e.preventDefault();
+                      void sendMessage();
+                    }
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      void sendMessage();
+                    }
+                  }}
                   placeholder={composerPlaceholder}
                   rows={1}
                   disabled={loading}
-                  className="chat-composer-textarea chat-app-scroll max-h-[280px] min-h-[52px] w-full resize-none overflow-y-auto py-0.5 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-placeholder)]"
+                  className={`chat-composer-textarea chat-app-scroll max-h-[280px] min-h-[52px] w-full resize-none overflow-y-auto py-0.5 text-[15px] leading-relaxed font-sans ${
+                    isDev
+                      ? "border-0 bg-transparent text-[#e6edf3] placeholder:text-[#6e7681] focus:outline-none focus:ring-0"
+                      : "text-[var(--app-text)] placeholder:text-[var(--app-placeholder)]"
+                  }`}
                 />
                 <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden sm:flex-wrap sm:gap-2 sm:overflow-visible">
                   <label
@@ -2120,16 +2492,24 @@ export default function ChatClient({
                     </span>
                   </label>
                   <div className="min-w-0 max-w-[min(100%,calc(100vw-11.5rem))] flex-1 sm:max-w-none">
-                    <ProviderModelPicker
-                      variant="cascade"
-                      className="min-w-0 max-w-full"
-                      providers={providerRows}
-                      provider={provider}
-                      model={model}
-                      onProviderChange={onProviderChange}
-                      onModelChange={setModel}
-                      disabled={loading || !providersLoaded}
-                    />
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      {isDev ? (
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-wide text-[#22c55e]/90">
+                          Modelo de código
+                        </span>
+                      ) : null}
+                      <ProviderModelPicker
+                        variant="cascade"
+                        className="min-w-0 max-w-full"
+                        providers={providerRows}
+                        provider={provider}
+                        model={model}
+                        onProviderChange={onProviderChange}
+                        onModelChange={setModel}
+                        disabled={loading || !providersLoaded}
+                        accent={isDev ? "green" : "default"}
+                      />
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1 sm:gap-2">
                     {speech.supported ? (
@@ -2166,7 +2546,11 @@ export default function ChatClient({
                       type="button"
                       onClick={() => void sendMessage()}
                       disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#141413] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:cursor-not-allowed disabled:opacity-35 sm:gap-2 sm:px-5 sm:py-2.5 dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-bold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:gap-2 sm:px-5 sm:py-2.5 ${
+                        isDev
+                          ? "bg-[#22c55e] font-mono text-[#0d1117] hover:bg-[#16a34a]"
+                          : "bg-[#141413] text-white hover:bg-[#2d2d2d] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+                      }`}
                     >
                       <SendIcon />
                       Enviar
@@ -2182,21 +2566,13 @@ export default function ChatClient({
                   {composerError}
                 </p>
               ) : null}
-              <p className="mt-2 max-w-full px-0.5 text-center text-[11px] font-semibold text-[var(--app-text-muted)]">
-                <span className="mx-auto inline-flex max-w-full min-w-0 flex-nowrap items-center justify-center gap-x-1 overflow-hidden sm:flex-wrap sm:gap-y-0.5">
-                  <span className="max-w-[32%] shrink truncate rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--app-text)] sm:max-w-none sm:shrink-0 dark:bg-white/10">
-                    {composerFooterProviderModel.providerShort}
-                  </span>
-                  <span className="shrink-0 font-normal text-[var(--app-text-muted)]" aria-hidden>
-                    —
-                  </span>
-                  <span className="min-w-0 max-w-[55%] truncate text-[11px] font-semibold text-[var(--app-text-secondary)] sm:max-w-none">
-                    {composerFooterProviderModel.modelLabel}
-                  </span>
-                </span>
+              <p className="mt-1.5 text-center text-[11px] font-semibold text-[var(--app-text-secondary)]">
+                Enter para enviar · Shift+Enter para nova linha
+              </p>
+              <p className="mt-0.5 max-w-full px-0.5 text-center text-[10px] font-normal text-[var(--app-text-muted)]/60">
                 {composerFooterProviderModel.row && !composerFooterProviderModel.row.configured
-                  ? " · Adicione a chave em Definições para enviar mensagens."
-                  : " · Verifique informações críticas."}
+                  ? "Adicione a chave em Definições para enviar mensagens."
+                  : "IAs podem cometer erros. Verifique informações importantes."}
                 {" · "}
                 <Link
                   href="/settings/usage"
@@ -2334,6 +2710,48 @@ function PlusSmIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FileDocSmIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M14 2v6h6M8 13h8M8 17h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PaperclipSmIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

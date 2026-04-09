@@ -3,10 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PasswordFieldWithEye } from "@/components/PasswordFieldWithEye";
+import {
+  readAccountFullNameFromLocalStorage,
+  writeAccountFullNameToLocalStorage,
+} from "@/lib/account-display-name-local";
 
 export default function SettingsAccountPage() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionAuthed, setSessionAuthed] = useState(false);
+  const [sessionEmail, setSessionEmail] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
   const [nameMsg, setNameMsg] = useState("");
@@ -28,15 +33,25 @@ export default function SettingsAccountPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setSessionAuthed(false);
+        setSessionEmail("");
         setUserId(null);
         setFullName("");
         return;
       }
       setSessionAuthed(true);
+      const email =
+        typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
+      setSessionEmail(email);
       setUserId(typeof data.id === "string" ? data.id : null);
-      setFullName(typeof data.fullName === "string" ? data.fullName : "");
+      let name = typeof data.fullName === "string" ? data.fullName.trim() : "";
+      if (!name && email) {
+        const fromLs = readAccountFullNameFromLocalStorage(email);
+        if (fromLs) name = fromLs;
+      }
+      setFullName(name);
     } catch {
       setSessionAuthed(false);
+      setSessionEmail("");
       setUserId(null);
       setFullName("");
     } finally {
@@ -52,25 +67,33 @@ export default function SettingsAccountPage() {
     e.preventDefault();
     setNameMsg("");
     setNameErr("");
-    if (!userId) {
-      setNameErr("Nome completo só pode ser salvo para contas cadastradas no arquivo de dados.");
-      return;
-    }
     setNamePending(true);
     try {
-      const res = await fetch("/api/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: userId, fullName }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Não foi possível salvar.");
+      if (userId) {
+        const res = await fetch("/api/users", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: userId, fullName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(typeof data.error === "string" ? data.error : "Não foi possível salvar.");
+        }
+        setNameMsg("Nome atualizado.");
+        if (data.user && typeof data.user.fullName === "string") {
+          setFullName(data.user.fullName);
+        }
+        window.dispatchEvent(new Event("ai-chat-ls-update"));
+        return;
       }
-      setNameMsg("Nome atualizado.");
-      if (data.user && typeof data.user.fullName === "string") {
-        setFullName(data.user.fullName);
+      const email = sessionEmail.trim().toLowerCase();
+      if (!email) {
+        setNameErr("Não foi possível identificar a sessão. Faça login novamente.");
+        return;
       }
+      writeAccountFullNameToLocalStorage(email, fullName);
+      setNameMsg("Nome salvo localmente.");
+      window.dispatchEvent(new Event("ai-chat-ls-update"));
     } catch (e) {
       setNameErr(e instanceof Error ? e.message : "Erro");
     } finally {
@@ -173,19 +196,14 @@ export default function SettingsAccountPage() {
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              disabled={!userId || namePending}
+              disabled={namePending}
               autoComplete="name"
               className="mt-2 w-full max-w-md rounded-xl border border-[var(--app-border-strong)] bg-[#fafafa] px-3 py-2.5 text-sm text-[var(--app-text)] outline-none transition focus:border-[#c45c2a]/50 focus:ring-2 focus:ring-[#c45c2a]/20 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#1f1f1f]"
             />
-            {!userId ? (
-              <p className="mt-2 text-xs font-medium text-[var(--app-text-muted)]">
-                Disponível apenas para contas cadastradas no arquivo de dados (não para acesso só com APP_PASSWORD).
-              </p>
-            ) : null}
           </div>
           <button
             type="submit"
-            disabled={!userId || namePending}
+            disabled={namePending}
             className="rounded-full bg-[#141413] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:opacity-50 dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
           >
             {namePending ? "Salvando…" : "Salvar nome"}

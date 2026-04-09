@@ -43,7 +43,15 @@ export async function GET() {
     return NextResponse.json({ error: "Apenas administradores." }, { status: 403 });
   }
 
-  const { data, error } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Supabase não configurado (SUPABASE_URL / SERVICE_ROLE_KEY)." },
+      { status: 503 },
+    );
+  }
+
+  const { data, error } = await supabase
     .from("conversations")
     .select("user_email, data");
 

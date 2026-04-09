@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -126,7 +127,7 @@ body {
   left: 0;
   right: 0;
   height: 60px;
-  background: linear-gradient(to bottom, transparent, var(--background-color));
+  background: linear-gradient(to bottom, transparent, var(--composer-fade-color, var(--background-color)));
   pointer-events: none;
   z-index: 0;
 }
@@ -189,6 +190,9 @@ html.dark .chat-composer-glass:focus-within {
   background: transparent;
   outline: none;
   box-shadow: none;
+  font-family: var(--font-geist-sans), system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
 }
 
 .chat-composer-textarea::placeholder {
@@ -274,4 +278,129 @@ html.dark .chat-app-scroll::-webkit-scrollbar-thumb {
 .dark .chat-app-scroll::-webkit-scrollbar-thumb:hover,
 html.dark .chat-app-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.34);
+}
+
+.markdown-msg-rendered {
+  animation: msg-appear 0.2s ease-out both;
+}
+
+@keyframes msg-appear {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Stream: sem animação no contentor (evita repaints contínuos / “travamentos”) */
+.markdown-streaming {
+  contain: layout;
+}
+
+/* marked → HTML durante stream (alinhado ao ReactMarkdown) */
+.markdown-streaming-inner p {
+  margin: 0 0 0.75rem;
+}
+.markdown-streaming-inner p:last-child {
+  margin-bottom: 0;
+}
+.markdown-streaming-inner ul,
+.markdown-streaming-inner ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+.markdown-streaming-inner li {
+  margin: 0.25rem 0;
+}
+.markdown-streaming-inner h1 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.markdown-streaming-inner h2 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.markdown-streaming-inner h3 {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.markdown-streaming-inner blockquote {
+  margin: 0.75rem 0;
+  padding-left: 1rem;
+  border-left: 2px solid rgba(196, 92, 42, 0.85);
+  color: var(--app-text-secondary);
+}
+.dark .markdown-streaming-inner blockquote,
+html.dark .markdown-streaming-inner blockquote {
+  border-left-color: rgba(232, 168, 124, 0.9);
+}
+.markdown-streaming-inner a {
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: #b45309;
+}
+.dark .markdown-streaming-inner a,
+html.dark .markdown-streaming-inner a {
+  color: #f0b090;
+}
+.markdown-streaming-inner hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--app-border-strong);
+}
+.markdown-streaming-inner table {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.markdown-streaming-inner th,
+.markdown-streaming-inner td {
+  border: 1px solid var(--app-border-strong);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-streaming-inner th {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.markdown-streaming-inner pre {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  background: #1a1a18;
+}
+.markdown-streaming-inner pre code.hljs {
+  background: transparent;
+  display: block;
+  padding: 1rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+.markdown-streaming--studio blockquote {
+  border-left-color: #22c55e;
+  color: #8b949e;
+}
+.markdown-streaming--studio a {
+  color: #22c55e;
+  text-decoration-color: rgba(34, 197, 94, 0.5);
+}
+.markdown-streaming--studio a:hover {
+  color: #4ade80;
+}
+.markdown-streaming--studio pre {
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  box-shadow: inset 0 1px 0 rgba(34, 197, 94, 0.12);
+  background: #010409;
 }

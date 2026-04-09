@@ -9,14 +9,37 @@ async function getUserEmail(): Promise<string | null> {
   return store.get(SESSION_EMAIL_COOKIE)?.value?.trim().toLowerCase() ?? null;
 }
 
-export async function GET() {
+/** Dev: devMode === true ou legado kind === "dev" */
+function isDevConversationData(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const o = data as { devMode?: unknown; kind?: unknown };
+  if (o.devMode === true) return true;
+  if (o.kind === "dev") return true;
+  return false;
+}
+
+function wantsDevList(req: Request): boolean {
+  const { searchParams } = new URL(req.url);
+  return (
+    searchParams.get("type") === "dev" || searchParams.get("scope") === "dev"
+  );
+}
+
+export async function GET(req: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const email = await getUserEmail();
   if (!email) return NextResponse.json({ conversations: [] });
 
-  const { data, error } = await getSupabaseAdmin()
+  const devList = wantsDevList(req);
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json({ conversations: [] });
+  }
+
+  const { data, error } = await supabase
     .from("conversations")
     .select("id, data, updated_at")
     .eq("user_email", email)
@@ -24,7 +47,11 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const conversations = (data ?? []).map((row) => row.data);
+  const list = (data ?? []).map((row) => row.data);
+  const conversations = devList
+    ? list.filter((c) => isDevConversationData(c))
+    : list.filter((c) => !isDevConversationData(c));
+
   return NextResponse.json({ conversations });
 }
 
@@ -36,21 +63,64 @@ export async function POST(req: Request) {
   if (!email) return NextResponse.json({ error: "No session" }, { status: 401 });
 
   const body = await req.json();
-  const conversations: Array<{ id: string }> = body.conversations ?? [];
+  const type =
+    body.type === "dev" || body.scope === "dev" ? "dev" : "chat";
+  const conversations: Array<Record<string, unknown> & { id: string }> =
+    body.conversations ?? [];
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Supabase não configurado (SUPABASE_URL / SERVICE_ROLE_KEY)." },
+      { status: 503 },
+    );
+  }
+
+  const { data: existingRows, error: selErr } = await supabase
+    .from("conversations")
+    .select("id, data")
+    .eq("user_email", email);
+
+  if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+
+  const idsToDelete = (existingRows ?? [])
+    .filter((row) => {
+      const dev = isDevConversationData(row.data);
+      if (type === "dev") return dev;
+      return !dev;
+    })
+    .map((r) => r.id);
+
+  if (idsToDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from("conversations")
+      .delete()
+      .eq("user_email", email)
+      .in("id", idsToDelete);
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+  }
 
   if (conversations.length === 0) {
-    await getSupabaseAdmin().from("conversations").delete().eq("user_email", email);
     return NextResponse.json({ ok: true });
   }
 
-  const rows = conversations.map((c) => ({
-    id: c.id,
-    user_email: email,
-    data: c,
-    updated_at: new Date().toISOString(),
-  }));
+  const rows = conversations.map((c) => {
+    const { kind, devMode, ...rest } = c;
+    void kind;
+    void devMode;
+    const data =
+      type === "dev"
+        ? { ...rest, devMode: true, kind: "dev" }
+        : { ...rest };
+    return {
+      id: c.id,
+      user_email: email,
+      data,
+      updated_at: new Date().toISOString(),
+    };
+  });
 
-  const { error } = await getSupabaseAdmin()
+  const { error } = await supabase
     .from("conversations")
     .upsert(rows, { onConflict: "id,user_email" });
 
@@ -65,13 +135,27 @@ export async function DELETE(req: Request) {
   const email = await getUserEmail();
   if (!email) return NextResponse.json({ error: "No session" }, { status: 401 });
 
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Supabase não configurado (SUPABASE_URL / SERVICE_ROLE_KEY)." },
+      { status: 503 },
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 
   if (id) {
-    await getSupabaseAdmin().from("conversations").delete().eq("id", id).eq("user_email", email);
+    const { error } = await supabase
+      .from("conversations")
+      .delete()
+      .eq("id", id)
+      .eq("user_email", email);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } else {
-    await getSupabaseAdmin().from("conversations").delete().eq("user_email", email);
+    const { error } = await supabase.from("conversations").delete().eq("user_email", email);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
