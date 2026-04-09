@@ -124,17 +124,23 @@ export function useSpeechDictation(setInput: (value: string) => void) {
     continueRef.current = false;
     baseRef.current = "";
     lastDisplayRef.current = "";
-    try {
-      recRef.current?.stop();
-    } catch {
+    setListening(false);
+    const rec = recRef.current;
+    recRef.current = null;
+    if (rec) {
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
       try {
-        recRef.current?.abort?.();
+        rec.stop();
       } catch {
-        /* ignore */
+        try {
+          rec.abort?.();
+        } catch {
+          /* ignore */
+        }
       }
     }
-    recRef.current = null;
-    setListening(false);
   }, []);
 
   /**
