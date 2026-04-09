@@ -1,5 +1,4 @@
 version: "3.8"
-
 services:
   choix-chat:
     build: .
@@ -9,6 +8,9 @@ services:
       - "3002:3000"
     env_file:
       - .env.production
+    environment:
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
     volumes:
       # Persiste utilizadores e dados em `data/app-data.json`
       - ./data:/app/data

@@ -27,8 +27,9 @@ import {
 } from "@/lib/chat-storage-keys";
 import { parseChatCommand, docUserPrompt, type DocKind } from "@/lib/chat-commands";
 import {
+  readConversationsFromSupabase,
+  writeConversationsToSupabase,
   readConversationsJsonFromStorage,
-  writeConversationsToStorage,
 } from "@/lib/conversations-storage";
 import {
   appendCoworkInstruction,
@@ -426,7 +427,7 @@ export default function ChatClient({
     if (!hydrated.current) return;
     try {
       const all = conversationsRef.current;
-      writeConversationsToStorage(all);
+      void writeConversationsToSupabase(all);
       const aid = activeIdRef.current;
       if (aid && all.some((c) => c.id === aid)) {
         localStorage.setItem(ACTIVE_CONVERSATION_KEY, aid);
@@ -572,45 +573,65 @@ export default function ChatClient({
       /* ignore */
     }
     setProjects(loadProjectsFromStorage());
-    try {
-      const raw = readConversationsJsonFromStorage();
-      const aidLs = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
-      let persistent: Conversation[] = [];
-      if (raw) {
+    // Tenta migrar localStorage para Supabase na primeira carga
+    const raw = readConversationsJsonFromStorage();
+    const aidLs = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+    if (raw) {
+      try {
         const parsed = JSON.parse(raw) as Conversation[];
         if (Array.isArray(parsed) && parsed.length) {
-          persistent = parsed.map((c) => normalizeConv(c));
+          // Migra para Supabase silenciosamente
+          void writeConversationsToSupabase(parsed);
         }
-      }
-      if (persistent.length) {
-        setConversations(persistent);
-        const pick =
-          (aidLs && persistent.some((c) => c.id === aidLs) && aidLs) || persistent[0].id;
-        setActiveId(pick);
-        hydrated.current = true;
-        return;
-      }
-    } catch {
-      /* ignore */
+      } catch { /* ignore */ }
     }
-    const id = uid();
-    const empty: Conversation = {
-      id,
-      title: "Nova conversa",
-      updatedAt: Date.now(),
-      messages: [],
-      pinned: false,
-      projectId: null,
-      groupId: null,
-    };
-    setConversations([empty]);
-    setActiveId(id);
-    hydrated.current = true;
+    void (async () => {
+      try {
+        const remote = await readConversationsFromSupabase();
+        if (remote && Array.isArray(remote) && remote.length) {
+          const persistent = remote.map((c) => normalizeConv(c as Conversation));
+          setConversations(persistent);
+          const pick =
+            (aidLs && persistent.some((c) => c.id === aidLs) && aidLs) || persistent[0].id;
+          setActiveId(pick);
+          hydrated.current = true;
+          return;
+        }
+      } catch { /* ignore */ }
+      // Fallback localStorage
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as Conversation[];
+          if (Array.isArray(parsed) && parsed.length) {
+            const persistent = parsed.map((c) => normalizeConv(c));
+            setConversations(persistent);
+            const pick =
+              (aidLs && persistent.some((c) => c.id === aidLs) && aidLs) || persistent[0].id;
+            setActiveId(pick);
+            hydrated.current = true;
+            return;
+          }
+        } catch { /* ignore */ }
+      }
+      const id = uid();
+      const empty: Conversation = {
+        id,
+        title: "Nova conversa",
+        updatedAt: Date.now(),
+        messages: [],
+        pinned: false,
+        projectId: null,
+        groupId: null,
+      };
+      setConversations([empty]);
+      setActiveId(id);
+      hydrated.current = true;
+    })();
   }, []);
 
   useEffect(() => {
     if (!hydrated.current) return;
-    writeConversationsToStorage(conversations);
+    void writeConversationsToSupabase(conversations);
     if (activeId) {
       try {
         if (conversations.some((c) => c.id === activeId)) {

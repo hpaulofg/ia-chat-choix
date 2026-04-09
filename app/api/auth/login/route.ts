@@ -94,14 +94,14 @@ export async function POST(req: Request) {
     maxAge: MAX_AGE,
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
   });
   store.set(SESSION_EMAIL_COOKIE, email, {
     httpOnly: true,
     maxAge: MAX_AGE,
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
   });
 
   return NextResponse.json({ ok: true });

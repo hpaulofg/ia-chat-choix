@@ -3,9 +3,33 @@ import {
   LEGACY_CONVERSATIONS_STORAGE_KEY,
 } from "@/lib/chat-storage-keys";
 
-/**
- * Lê o JSON guardado: primeiro `conversations`, senão migra de `ai-chat-platform-conversations`.
- */
+/** Lê conversas do Supabase via API. Fallback para localStorage se offline. */
+export async function readConversationsFromSupabase(): Promise<unknown[] | null> {
+  try {
+    const res = await fetch("/api/conversations", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.conversations ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Salva todas as conversas no Supabase via API. */
+export async function writeConversationsToSupabase(conversations: unknown[]): Promise<void> {
+  try {
+    await fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ conversations }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Legado — mantido para compatibilidade durante migração */
 export function readConversationsJsonFromStorage(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -22,7 +46,7 @@ export function readConversationsJsonFromStorage(): string | null {
   }
 }
 
-/** Grava o array completo de conversas (inclui `messages` de cada uma). */
+/** Legado — mantido para compatibilidade durante migração */
 export function writeConversationsToStorage(conversations: unknown): void {
   if (typeof window === "undefined") return;
   try {

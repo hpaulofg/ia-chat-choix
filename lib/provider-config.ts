@@ -57,19 +57,14 @@ export const GROQ_MODELS: ModelOption[] = [
 /** IDs estáveis v1beta (sem sufixos -latest); path `models/{id}:generateContent`. */
 export const GOOGLE_MODELS: ModelOption[] = [
   {
-    id: "gemini-2.0-flash",
-    label: "Gemini 2.0 Flash",
-    description: "Rápido, multimodal",
+    id: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    description: "Rápido, multimodal, mais recente",
   },
   {
-    id: "gemini-1.5-flash",
-    label: "Gemini 1.5 Flash",
-    description: "Económico e ágil",
-  },
-  {
-    id: "gemini-1.5-pro",
-    label: "Gemini 1.5 Pro",
-    description: "Mais capacidade e contexto",
+    id: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    description: "Máxima capacidade Google",
   },
 ];
 

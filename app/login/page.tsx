@@ -79,7 +79,7 @@ function LoginPageInner() {
         setError(typeof data.error === "string" ? data.error : "Falha no login.");
         return;
       }
-      router.push("/chat");
+      window.location.href = "/chat";
       router.refresh();
     } catch {
       setError("Não foi possível conectar ao servidor.");

@@ -13,10 +13,21 @@ const MAX_SYSTEM = 12_000;
 /** Groq: TPM baixo; ~200 tokens no system (~750 chars em PT). */
 const GROQ_SYSTEM_MAX_CHARS = 750;
 
+function coworkKey(): string {
+  try {
+    const email = document.cookie
+      .split("; ")
+      .find((r) => r.startsWith("session_email="))
+      ?.split("=")[1];
+    if (email) return `${COWORK_MEMORY_KEY}:${decodeURIComponent(email)}`;
+  } catch { /* ignore */ }
+  return COWORK_MEMORY_KEY;
+}
+
 export function loadCoworkMemory(): CoworkMemory {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(COWORK_MEMORY_KEY);
+    const raw = localStorage.getItem(coworkKey());
     if (!raw) return {};
     const o = JSON.parse(raw) as Record<string, unknown>;
     if (!o || typeof o !== "object") return {};
@@ -36,7 +47,7 @@ export function saveCoworkMemoryPatch(patch: Partial<CoworkMemory>): void {
   const prev = loadCoworkMemory();
   const next = { ...prev, ...patch };
   try {
-    localStorage.setItem(COWORK_MEMORY_KEY, JSON.stringify(next));
+    localStorage.setItem(coworkKey(), JSON.stringify(next));
   } catch {
     /* ignore */
   }
