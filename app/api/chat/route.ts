@@ -24,6 +24,27 @@ import {
   userMayUseProvider,
 } from "@/lib/user-access";
 
+/** Evita cache e bufferização agressiva de proxies (nginx, CDN) em produção. */
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const SSE_RESPONSE_HEADERS: Record<string, string> = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control":
+    "no-store, no-cache, no-transform, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+/**
+ * Comentário SSE grande: alguns proxies só repassam o corpo após ~4KB.
+ * Não é mostrado ao cliente (linhas `:` são ignoradas em event-stream).
+ */
+function sseAntiBufferPreamble(encoder: TextEncoder): Uint8Array {
+  return encoder.encode(`:${" ".repeat(4096)}\n\n`);
+}
+
 function anthropicImageMediaType(
   mime: string
 ): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
@@ -200,6 +221,7 @@ function streamSse(
 ): ReadableStream {
   return new ReadableStream({
     async start(controller) {
+      controller.enqueue(sseAntiBufferPreamble(encoder));
       const send = (obj: object) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
@@ -465,6 +487,7 @@ export async function POST(req: Request) {
 
     const readable = new ReadableStream({
       async start(controller) {
+        controller.enqueue(sseAntiBufferPreamble(encoder));
         const send = (obj: object) => {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         };
@@ -494,13 +517,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
+    return new Response(readable, { headers: SSE_RESPONSE_HEADERS });
   }
 
   if (provider === "openai" || provider === "groq") {
@@ -514,13 +531,7 @@ export async function POST(req: Request) {
       streamOpenAICompatible(send, baseUrl, apiKey, model, withSystem)
     );
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
+    return new Response(readable, { headers: SSE_RESPONSE_HEADERS });
   }
 
   if (provider === "google") {
@@ -530,13 +541,7 @@ export async function POST(req: Request) {
       streamGemini(send, apiKey, model, contents, systemPrompt)
     );
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
+    return new Response(readable, { headers: SSE_RESPONSE_HEADERS });
   }
 
   return NextResponse.json({ error: "Provedor não suportado." }, { status: 400 });

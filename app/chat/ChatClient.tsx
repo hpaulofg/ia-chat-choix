@@ -968,6 +968,7 @@ export default function ChatClient({
         const clientApiKey = getClientApiKey(provider as ProviderId) ?? undefined;
         const res = await fetch("/api/chat", {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: history,
