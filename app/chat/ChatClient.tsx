@@ -512,6 +512,8 @@ export default function ChatClient({
   const composerFileInputId = useId();
   const hydrated = useRef(false);
   const active = conversations.find((c) => c.id === activeId) ?? null;
+  const activeMessages = active?.messages;
+  const lastActiveMessage = activeMessages?.[activeMessages.length - 1];
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
   const activeIdRef = useRef<string | null>(activeId);
@@ -814,8 +816,8 @@ export default function ChatClient({
 
   useEffect(() => {
     if (!isNearBottomRef.current) return;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [active?.messages, loading]);
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [activeMessages, loading, lastActiveMessage?.id, lastActiveMessage?.content?.length]);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -2128,8 +2130,11 @@ export default function ChatClient({
                   m.role === "assistant" &&
                   m.id === lastId &&
                   !m.content.trim();
-                const isStreamingThisMsg =
-                  loading && m.role === "assistant" && m.id === lastId;
+                const isStreaming =
+                  loading &&
+                  m.role === "assistant" &&
+                  m.id === lastId &&
+                  m.content.length > 0;
                 const userHoverActions =
                   "pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-100";
 
@@ -2264,7 +2269,7 @@ export default function ChatClient({
                             <MarkdownMessage
                               content={m.content}
                               variant={isDev ? "codeStudio" : "default"}
-                              streaming={isStreamingThisMsg}
+                              streaming={isStreaming}
                               className={
                                 m.content
                                   ? isDev

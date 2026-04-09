@@ -1,22 +1,9 @@
 "use client";
 
-import {
-  memo,
-  useCallback,
-  useDeferredValue,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { memo, useCallback, useDeferredValue, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import {
-  parseStreamingMarkdownToHtml,
-  sanitizeStreamingHtml,
-} from "@/lib/stream-markdown-html";
 
 function tableToTsv(table: HTMLTableElement): string {
   const rows = Array.from(table.querySelectorAll("tr"));
@@ -133,31 +120,13 @@ export const MarkdownMessage = memo(
 
     const deferredStreamContent = useDeferredValue(content);
 
-    const streamingHtml = useMemo(() => {
-      if (!streaming) return "";
-      const rawHtml = parseStreamingMarkdownToHtml(deferredStreamContent);
-      return sanitizeStreamingHtml(rawHtml);
-    }, [streaming, deferredStreamContent]);
-
-    const streamScrollRef = useRef<HTMLDivElement>(null);
-
-    useLayoutEffect(() => {
-      if (!streaming) return;
-      const host = streamScrollRef.current;
-      if (!host) return;
-      const region = host.closest(".chat-app-scroll");
-      if (region instanceof HTMLElement) {
-        region.scrollTop = region.scrollHeight;
-      }
-    }, [streaming, streamingHtml]);
-
     if (streaming) {
       return (
         <div
-          ref={streamScrollRef}
-          className={`markdown-streaming markdown-streaming-inner markdown-msg font-sans text-[15px] leading-relaxed text-[var(--app-text)] ${isCode ? "markdown-streaming--studio" : ""} ${className}`}
-          dangerouslySetInnerHTML={{ __html: streamingHtml }}
-        />
+          className={`markdown-streaming markdown-msg font-sans text-[15px] leading-relaxed text-[var(--app-text)] ${className}`}
+        >
+          <p className="mb-0 max-w-full whitespace-pre-wrap leading-relaxed">{deferredStreamContent}</p>
+        </div>
       );
     }
 

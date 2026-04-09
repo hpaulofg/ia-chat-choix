@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "tts-1",
+        model: "tts-1-hd",
         input: text,
         voice,
       }),

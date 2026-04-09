@@ -15,37 +15,37 @@ const VOICES: { id: string; name: string; tag: string; desc: string }[] = [
   {
     id: "alloy",
     name: "Equilibrada",
-    tag: "Neutro",
+    tag: "Versátil",
     desc: "Voz versátil, funciona bem em qualquer tipo de conteúdo",
   },
   {
     id: "echo",
-    name: "Profissional",
-    tag: "Masculino",
+    name: "Nítida",
+    tag: "Objetiva",
     desc: "Tom direto e claro, ideal para apresentações e relatórios",
   },
   {
     id: "fable",
     name: "Narrativa",
-    tag: "Expressivo",
+    tag: "Expressiva",
     desc: "Dinâmica e envolvente, ótima para histórias e roteiros",
   },
   {
     id: "onyx",
-    name: "Autoridade",
-    tag: "Masculino grave",
+    name: "Profunda",
+    tag: "Marcante",
     desc: "Tom profundo e imponente, transmite credibilidade",
   },
   {
     id: "nova",
     name: "Acolhedora",
-    tag: "Feminina",
+    tag: "Calorosa",
     desc: "Calorosa e agradável, perfeita para conteúdo educativo",
   },
   {
     id: "shimmer",
     name: "Suave",
-    tag: "Feminina delicada",
+    tag: "Tranquila",
     desc: "Clara e tranquila, ideal para meditação e conteúdo relaxante",
   },
 ];
@@ -56,6 +56,19 @@ type SessionItem = {
   textPreview: string;
   voice: string;
 };
+
+function VoiceWaveBars({ active }: { active: boolean }) {
+  return (
+    <span
+      className={`voice-wave-bars shrink-0 rounded-lg bg-[var(--app-surface-2)] px-2 py-1 dark:bg-[#1a1a1a] ${active ? "voice-wave-bars--active" : ""}`}
+      aria-hidden
+    >
+      <span />
+      <span />
+      <span />
+    </span>
+  );
+}
 
 function revokeUrl(url: string, registry: Set<string>) {
   try {
@@ -144,18 +157,22 @@ function TtsAudioPlayer({ src, className = "" }: { src: string; className?: stri
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] px-3 py-3 dark:border-white/[0.1] dark:bg-[#262626] ${className}`}
+      className={`flex items-center gap-2.5 rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] px-2.5 py-2 dark:border-white/[0.08] dark:bg-[#262626] ${className}`}
     >
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
       <button
         type="button"
         onClick={toggle}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border-strong)] bg-[#141413] text-white shadow-sm transition hover:bg-[#2d2d2d] dark:border-white/[0.12] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm transition ${
+          playing
+            ? "border-[#c45c2a] bg-[#c45c2a] text-white shadow-[0_4px_14px_-2px_rgba(196,92,42,0.55)] hover:bg-[#b54f22]"
+            : "border-[var(--app-border-strong)] bg-[#141413] text-white hover:bg-[#2d2d2d] dark:border-white/[0.12] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+        }`}
         aria-label={playing ? "Pausar" : "Reproduzir"}
       >
         {playing ? <PauseIcon /> : <PlayIcon />}
       </button>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div
           ref={barRef}
           role="slider"
@@ -163,7 +180,7 @@ function TtsAudioPlayer({ src, className = "" }: { src: string; className?: stri
           aria-valuenow={Math.round(pct)}
           aria-valuemin={0}
           aria-valuemax={100}
-          className="group relative h-2 w-full cursor-pointer rounded-full bg-[var(--app-border)] dark:bg-white/10"
+          className="group relative h-1.5 w-full cursor-pointer rounded-full bg-[var(--app-border)] dark:bg-white/10"
           onClick={onBarPointer}
           onKeyDown={(e) => {
             if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -183,7 +200,7 @@ function TtsAudioPlayer({ src, className = "" }: { src: string; className?: stri
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="flex justify-between font-mono text-[11px] tabular-nums text-[var(--app-text-muted)]">
+        <div className="flex justify-between font-mono text-[10px] tabular-nums text-[var(--app-text-muted)]">
           <span>{formatAudioTime(current)}</span>
           <span>{formatAudioTime(duration)}</span>
         </div>
@@ -248,7 +265,7 @@ export default function VoicePage() {
       const preview = t.length > 120 ? `${t.slice(0, 120)}…` : t;
 
       setItems((prev) => {
-        const next = [{ id, src: url, textPreview: preview, voice }, ...prev].slice(0, 3);
+        const next = [{ id, src: url, textPreview: preview, voice }, ...prev];
         const keep = new Set(next.map((x) => x.src));
         for (const x of prev) {
           if (!keep.has(x.src)) {
@@ -276,49 +293,58 @@ export default function VoicePage() {
 
   return (
     <ToolPageShell>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 pb-8">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
-            Gerar Narração
-          </h1>
-          <p className="text-sm text-[var(--app-text-secondary)]">
-            Powered by{" "}
-            <span className="font-medium text-[var(--app-text)]">OpenAI TTS</span>
-          </p>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 pb-12 pt-1">
+        <header className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#c45c2a]/12 text-[#c45c2a] dark:bg-[#c45c2a]/18">
+              <WaveGlyph className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
+                Gerar narração
+              </h1>
+              <p className="mt-0.5 text-sm text-[var(--app-text-secondary)]">
+                <span className="font-medium text-[var(--app-text)]">Síntese de voz com qualidade HD</span>
+                <span className="text-[var(--app-text-muted)]"> · OpenAI</span>
+              </p>
+            </div>
+          </div>
         </header>
 
         <div className="flex flex-col gap-2">
           <label
             htmlFor="tts-text"
-            className="text-sm font-semibold text-[var(--app-text)]"
+            className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-muted)]"
           >
             Texto para narração
           </label>
-          <div className="relative">
-            <textarea
-              id="tts-text"
-              rows={9}
-              value={text}
-              maxLength={MAX}
-              onChange={(e) => setText(e.target.value.slice(0, MAX))}
-              placeholder="Cole ou escreva o texto que deseja ouvir em voz alta. Funciona bem com artigos, roteiros e documentação."
-              className="w-full resize-y rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] pb-9 pl-4 pr-4 pt-3.5 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-placeholder)] outline-none transition focus:border-[#c45c2a]/55 focus:ring-2 focus:ring-[#c45c2a]/20 dark:bg-[#262626]"
-            />
-            <span
-              className={`pointer-events-none absolute bottom-3 right-4 text-xs font-medium tabular-nums ${
-                count >= MAX * 0.95
-                  ? "text-[#c45c2a]"
-                  : "text-[var(--app-text-muted)]"
-              }`}
-            >
-              {count} / {MAX}
-            </span>
+          <div className="chat-composer-glass">
+            <div className="relative">
+              <textarea
+                id="tts-text"
+                rows={8}
+                value={text}
+                maxLength={MAX}
+                onChange={(e) => setText(e.target.value.slice(0, MAX))}
+                placeholder="Cole ou escreva o texto. Artigos, roteiros e documentação funcionam muito bem."
+                className="chat-composer-textarea min-h-[160px] w-full resize-y pb-8 pt-1 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-placeholder)]"
+              />
+              <span
+                className={`pointer-events-none absolute bottom-2 right-1 text-[11px] font-medium tabular-nums ${
+                  count >= MAX * 0.95 ? "text-[#c45c2a]" : "text-[var(--app-text-muted)]"
+                }`}
+              >
+                {count} / {MAX}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <span className="text-sm font-semibold text-[var(--app-text)]">Voz</span>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-2.5">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-muted)]">
+            Voz
+          </span>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
             {VOICES.map((v) => {
               const selected = voice === v.id;
               return (
@@ -326,18 +352,16 @@ export default function VoicePage() {
                   key={v.id}
                   type="button"
                   onClick={() => setVoice(v.id)}
-                  className={`flex flex-col gap-2 rounded-2xl border p-3.5 text-left transition-all ${
+                  className={`flex flex-col gap-2.5 rounded-2xl border p-3 text-left transition-all ${
                     selected
-                      ? "border-[#c45c2a] bg-[#c45c2a]/[0.08] shadow-md ring-1 ring-[#c45c2a]/30 dark:bg-[#c45c2a]/[0.12]"
-                      : "border-[var(--app-border-strong)] bg-[var(--app-surface)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] dark:border-white/[0.1] dark:bg-[#262626]"
+                      ? "border-[#c45c2a]/80 bg-[#c45c2a]/[0.06] shadow-sm ring-1 ring-[#c45c2a]/22 dark:bg-[#c45c2a]/[0.1]"
+                      : "border-[var(--app-border-strong)] bg-[var(--app-surface)]/90 hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] dark:border-white/[0.08] dark:bg-[#262626]/90"
                   }`}
                 >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--app-surface-2)] text-[var(--app-text-secondary)] dark:bg-[#1f1f1f]">
-                    <MicIcon className="h-4 w-4" />
-                  </span>
+                  <VoiceWaveBars active={selected} />
                   <div className="min-w-0">
-                    <span className="block text-sm font-bold text-[var(--app-text)]">{v.name}</span>
-                    <span className="mt-0.5 block text-[11px] font-semibold uppercase tracking-wide text-[#c45c2a]">
+                    <span className="block text-sm font-semibold text-[var(--app-text)]">{v.name}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[#c45c2a]/90">
                       {v.tag}
                     </span>
                     <span className="mt-1 block text-[11px] leading-snug text-[var(--app-text-muted)]">
@@ -350,21 +374,23 @@ export default function VoicePage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void generate()}
-          disabled={loading || !text.trim()}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[var(--app-border-strong)] bg-[#141413] text-sm font-semibold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
-        >
-          {loading ? (
-            <>
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white dark:border-[#141413]/30 dark:border-t-[#141413]" />
-              A gerar áudio…
-            </>
-          ) : (
-            "Gerar narração"
-          )}
-        </button>
+        <div className="flex justify-center sm:justify-start">
+          <button
+            type="button"
+            onClick={() => void generate()}
+            disabled={loading || !text.trim()}
+            className="inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:w-auto sm:min-w-[200px] sm:px-8 sm:py-2.5 bg-[#141413] text-white hover:bg-[#2d2d2d] dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+          >
+            {loading ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white dark:border-[#141413]/30 dark:border-t-[#141413]" />
+                A gerar áudio…
+              </>
+            ) : (
+              "Gerar narração"
+            )}
+          </button>
+        </div>
 
         {error ? (
           <p className="rounded-2xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-800 dark:text-red-200">
@@ -373,36 +399,30 @@ export default function VoicePage() {
         ) : null}
 
         {items.length > 0 ? (
-          <div className="flex flex-col gap-6 border-t border-[var(--app-border)] pt-8 dark:border-white/[0.08]">
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-muted)]">
-              Sessão (até 3)
+          <div className="flex flex-col gap-4 border-t border-[var(--app-border)] pt-10 dark:border-white/[0.08]">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-muted)]">
+              Sessão
             </h2>
-            <ul className="flex flex-col gap-5">
-              {items.map((item, idx) => {
+            <ul className="flex flex-col gap-3">
+              {items.map((item) => {
                 const vMeta = VOICES.find((x) => x.id === item.voice);
+                const voiceLabel = vMeta ? `${vMeta.name} · ${vMeta.tag}` : item.voice;
                 return (
                   <li
                     key={item.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-4 shadow-sm dark:border-white/[0.08] dark:bg-[#1e1e1e]"
+                    className="flex flex-col gap-2.5 rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-3.5 shadow-sm dark:border-white/[0.06] dark:bg-[#1e1e1e]"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-[#c45c2a]">
-                        {idx === 0 ? "Mais recente" : `Anterior ${idx}`}
-                      </span>
-                      <span className="text-xs text-[var(--app-text-muted)]">
-                        {vMeta ? `${vMeta.name} · ${vMeta.tag}` : item.voice}
-                      </span>
-                    </div>
-                    <p className="line-clamp-3 text-sm leading-relaxed text-[var(--app-text)]">
+                    <span className="text-[11px] font-semibold text-[#c45c2a]">{voiceLabel}</span>
+                    <p className="line-clamp-2 text-[13px] leading-relaxed text-[var(--app-text)]">
                       {item.textPreview}
                     </p>
                     <TtsAudioPlayer src={item.src} />
                     <button
                       type="button"
                       onClick={() => downloadBlob(item.src, `narracao-${item.id}.mp3`)}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] py-2.5 text-sm font-semibold text-[var(--app-text)] transition hover:bg-[var(--app-hover)] dark:border-white/[0.1] dark:bg-[#2a2a2a]"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] py-2 text-xs font-semibold text-[var(--app-text)] transition hover:bg-[var(--app-hover)] dark:border-white/[0.08] dark:bg-[#2a2a2a]"
                     >
-                      <DownloadIcon className="h-4 w-4" />
+                      <DownloadIcon className="h-3.5 w-3.5" />
                       Descarregar MP3
                     </button>
                   </li>
@@ -416,9 +436,22 @@ export default function VoicePage() {
   );
 }
 
+function WaveGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 14v-4M8 8v8M12 5v14M16 9v6M20 12v0"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function PlayIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M8 5v14l11-7z" />
     </svg>
   );
@@ -426,22 +459,8 @@ function PlayIcon() {
 
 function PauseIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-    </svg>
-  );
-}
-
-function MicIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a5 5 0 01-10 0M12 19v3M8 22h8"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
