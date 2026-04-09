@@ -7,7 +7,7 @@ import type { ModelAllowlist } from "@/lib/model-allowlist";
 import { sanitizeModelAllowlist } from "@/lib/model-allowlist";
 import type { ProviderId } from "@/lib/provider-config";
 import { hashPassword } from "@/lib/password";
-import { sessionIsAdmin } from "@/lib/session-user";
+import { getSessionAppUser, sessionIsAdmin } from "@/lib/session-user";
 import { parseUserRole, type UserRole } from "@/lib/user-role";
 
 function normEmail(s: string): string {
@@ -129,6 +129,7 @@ export async function POST(req: Request) {
 
 type PatchBody = {
   id?: string;
+  fullName?: string;
   role?: UserRole;
   allowedProviders?: ProviderId[] | null;
   userModelAllowlist?: ModelAllowlist | null;
@@ -138,9 +139,6 @@ type PatchBody = {
 export async function PATCH(req: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
-  }
-  if (!(await sessionIsAdmin())) {
-    return NextResponse.json({ error: "Apenas administradores." }, { status: 403 });
   }
 
   let body: PatchBody;
@@ -162,6 +160,34 @@ export async function PATCH(req: Request) {
   }
 
   const cur = data.users[idx];
+  const admin = await sessionIsAdmin();
+
+  if (!admin) {
+    const { user: sessionUser } = await getSessionAppUser();
+    if (!sessionUser || sessionUser.id !== id) {
+      return NextResponse.json({ error: "Apenas administradores." }, { status: 403 });
+    }
+    const forbidden =
+      body.role !== undefined ||
+      body.status !== undefined ||
+      body.allowedProviders !== undefined ||
+      body.userModelAllowlist !== undefined;
+    if (forbidden) {
+      return NextResponse.json({ error: "Operação não permitida." }, { status: 403 });
+    }
+    if (body.fullName === undefined) {
+      return NextResponse.json({ error: "Nada a atualizar." }, { status: 400 });
+    }
+    const fullNameTrim = typeof body.fullName === "string" ? body.fullName.trim() : "";
+    const next: AppUser = {
+      ...cur,
+      fullName: fullNameTrim || cur.email.split("@")[0],
+    };
+    data.users[idx] = next;
+    saveAppData(data);
+    return NextResponse.json({ ok: true, user: serializeActiveUser(next) });
+  }
+
   const next: AppUser = { ...cur };
 
   if (body.status === "rejected") {
@@ -203,6 +229,11 @@ export async function PATCH(req: Request) {
           ? null
           : sanitizeModelAllowlist(body.userModelAllowlist);
     }
+  }
+
+  if (body.fullName !== undefined) {
+    const fullNameTrim = typeof body.fullName === "string" ? body.fullName.trim() : "";
+    next.fullName = fullNameTrim || next.email.split("@")[0];
   }
 
   data.users[idx] = next;

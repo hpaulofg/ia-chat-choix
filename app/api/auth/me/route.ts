@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth-cookie";
-import { getSessionEmail, getSessionRole } from "@/lib/session-user";
+import { getSessionAppUser } from "@/lib/session-user";
 import { isAdminRole } from "@/lib/user-role";
 
 export async function GET() {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
-  const email = await getSessionEmail();
-  const role = await getSessionRole();
+  const { email, user, role } = await getSessionAppUser();
   return NextResponse.json({
-    email,
-    role,
+    email: email ?? "",
+    fullName: user?.fullName ?? "",
     isAdmin: isAdminRole(role),
+    id: user?.id ?? null,
+    role,
   });
 }

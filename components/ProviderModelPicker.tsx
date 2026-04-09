@@ -139,11 +139,11 @@ export function ProviderModelPicker({
       ref={cascadeMenuRef}
       role="listbox"
       aria-label="Escolher modelo"
-      className={`pointer-events-auto absolute left-0 z-[500] flex w-max min-w-[320px] max-w-[380px] flex-row overscroll-contain [isolation:isolate] select-none ${
+      className={`pointer-events-auto absolute left-0 z-[500] flex w-[min(380px,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] min-w-0 flex-row overscroll-contain [isolation:isolate] select-none sm:w-max sm:min-w-[320px] sm:max-w-[380px] ${
         cascadeOpensDownward ? "top-full pt-1" : "bottom-full pb-1"
       }`}
     >
-      <div className="grid max-h-[min(70vh,420px)] w-max min-w-[320px] max-w-[380px] grid-cols-[110px_minmax(210px,270px)] overflow-hidden rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] shadow-2xl select-none dark:border-[#3f3f3f] dark:bg-[#2b2b2b]">
+      <div className="grid max-h-[min(70vh,420px)] w-full min-w-0 max-w-full grid-cols-[minmax(88px,110px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] shadow-2xl select-none sm:w-max sm:min-w-[320px] sm:max-w-[380px] sm:grid-cols-[110px_minmax(210px,270px)] dark:border-[#3f3f3f] dark:bg-[#2b2b2b]">
         <div className="flex min-h-0 flex-col gap-0 overflow-y-auto overflow-x-hidden border-r border-[var(--app-border)] px-1 py-2 dark:border-white/[0.08]">
           <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
             Provedor
@@ -253,16 +253,16 @@ export function ProviderModelPicker({
           aria-expanded={menuOpen}
           aria-haspopup="listbox"
           aria-label={`Modelo: ${triggerProviderName} — ${currentLabel}`}
-          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-black/10 bg-[#141413] px-3 py-2 text-left shadow-sm transition hover:bg-[#2a2a2a] disabled:opacity-50 dark:border-white/10 dark:bg-[#1a1a1a] dark:hover:bg-[#262626]"
+          className="inline-flex w-full max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-black/10 bg-[#141413] px-2 py-2 text-left shadow-sm transition hover:bg-[#2a2a2a] disabled:opacity-50 sm:w-auto sm:max-w-full sm:gap-2 sm:px-3 dark:border-white/10 dark:bg-[#1a1a1a] dark:hover:bg-[#262626]"
         >
-          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-left">
-            <span className="shrink-0 rounded-md bg-[#c45c2a]/25 px-1.5 py-0.5 text-[12px] font-bold tracking-tight text-[#fbbf24] dark:bg-[#c45c2a]/35 dark:text-[#fcd34d]">
+          <span className="flex min-w-0 flex-1 flex-nowrap items-baseline gap-x-1.5 overflow-hidden text-left sm:flex-wrap sm:gap-y-0.5 sm:overflow-visible">
+            <span className="shrink-0 rounded-md bg-[#c45c2a]/25 px-1 py-0.5 text-[11px] font-bold tracking-tight text-[#fbbf24] sm:px-1.5 sm:text-[12px] dark:bg-[#c45c2a]/35 dark:text-[#fcd34d]">
               {triggerProviderName}
             </span>
-            <span className="text-[13px] font-semibold text-white/45 dark:text-white/40" aria-hidden>
+            <span className="shrink-0 text-[12px] font-semibold text-white/45 dark:text-white/40 sm:text-[13px]" aria-hidden>
               —
             </span>
-            <span className="min-w-0 max-w-full text-[13px] font-medium leading-snug text-[#fafafa] dark:text-[#f5f5f5]">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-snug text-[#fafafa] sm:text-[13px] dark:text-[#f5f5f5]">
               {currentLabel}
             </span>
           </span>

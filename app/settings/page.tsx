@@ -3,16 +3,20 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useChatTheme } from "@/hooks/use-chat-theme";
 
 export default function SettingsOverviewPage() {
-  const { theme, setTheme, ready } = useChatTheme();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   useEffect(() => {
     void fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((d) => setIsAdmin(Boolean(d.isAdmin)))
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setIsAdmin(false);
+          return;
+        }
+        setIsAdmin(Boolean(d.isAdmin));
+      })
       .catch(() => setIsAdmin(false));
   }, []);
 
@@ -23,39 +27,12 @@ export default function SettingsOverviewPage() {
           Definições
         </h2>
         <p className="mx-auto max-w-xl text-sm font-medium leading-relaxed text-[var(--app-text-secondary)] sm:mx-0">
-          Contas, chaves das IAs, memória global e pastas de conversas — o mesmo aspeto visual do chat.
+          Memória, projetos e conta. Administradores gerem também custos, utilizadores e chaves das IAs. O tema claro/escuro
+          está no menu do perfil no chat.
         </p>
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <SettingsCard href="/settings" footer="Está aqui" samePage icon={<IconTile glyph={<SunMoonGlyph />} />}>
-          <h3 className="text-sm font-bold text-[var(--app-text)]">Aparência</h3>
-          <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
-            Tema claro ou escuro; sincronizado com o menu do perfil no chat.
-          </p>
-        </SettingsCard>
-        {isAdmin !== false ? (
-          <SettingsCard href="/settings/users" footer="Abrir →" icon={<IconTile glyph={<UsersCardGlyph />} />}>
-            <h3 className="text-sm font-bold text-[var(--app-text)]">Usuários</h3>
-            <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
-              Contas, senhas e níveis de acesso (admin, modelos completos ou limitados).
-            </p>
-          </SettingsCard>
-        ) : null}
-        {isAdmin !== false ? (
-          <SettingsCard href="/settings/api-keys" footer="Abrir →" icon={<IconTile glyph={<KeyCardGlyph />} />}>
-            <h3 className="text-sm font-bold text-[var(--app-text)]">Chaves e modelos</h3>
-            <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
-              Anthropic, OpenAI, Gemini e Groq; modelos visíveis no seletor.
-            </p>
-          </SettingsCard>
-        ) : null}
-        <SettingsCard href="/settings/usage" footer="Abrir →" icon={<IconTile glyph={<ChartCardGlyph />} />}>
-          <h3 className="text-sm font-bold text-[var(--app-text)]">Uso e custos</h3>
-          <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
-            Tokens, custos estimados e gráficos por modelo (dados neste navegador).
-          </p>
-        </SettingsCard>
         <SettingsCard href="/settings/memory" footer="Abrir →" icon={<IconTile glyph={<MemoryCardGlyph />} />}>
           <h3 className="text-sm font-bold text-[var(--app-text)]">Memória</h3>
           <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
@@ -68,55 +45,37 @@ export default function SettingsOverviewPage() {
             Pastas na barra lateral do chat para organizar conversas.
           </p>
         </SettingsCard>
+        <SettingsCard href="/settings/account" footer="Abrir →" icon={<IconTile glyph={<UserCircleCardGlyph />} />}>
+          <h3 className="text-sm font-bold text-[var(--app-text)]">Minha conta</h3>
+          <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
+            Alterar a palavra-passe da sua conta no ficheiro de dados.
+          </p>
+        </SettingsCard>
+        {isAdmin === true ? (
+          <SettingsCard href="/settings/usage" footer="Abrir →" icon={<IconTile glyph={<ChartCardGlyph />} />}>
+            <h3 className="text-sm font-bold text-[var(--app-text)]">Uso e custos</h3>
+            <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
+              Tokens, custos estimados e gráficos por modelo (dados neste navegador).
+            </p>
+          </SettingsCard>
+        ) : null}
+        {isAdmin === true ? (
+          <SettingsCard href="/settings/users" footer="Abrir →" icon={<IconTile glyph={<UsersCardGlyph />} />}>
+            <h3 className="text-sm font-bold text-[var(--app-text)]">Usuários</h3>
+            <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
+              Contas, senhas e níveis de acesso (admin, modelos completos ou limitados).
+            </p>
+          </SettingsCard>
+        ) : null}
+        {isAdmin === true ? (
+          <SettingsCard href="/settings/api-keys" footer="Abrir →" icon={<IconTile glyph={<KeyCardGlyph />} />}>
+            <h3 className="text-sm font-bold text-[var(--app-text)]">Chaves e modelos</h3>
+            <p className="mt-1 text-xs font-medium leading-relaxed text-[var(--app-text-secondary)]">
+              Anthropic, OpenAI, Gemini e Groq; modelos visíveis no seletor.
+            </p>
+          </SettingsCard>
+        ) : null}
       </div>
-
-      <section>
-        <h3 className="text-lg font-semibold text-[var(--app-text)]">Tema</h3>
-        <p className="mt-1 text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
-          O mesmo controlo está no menu do seu perfil no chat; aqui pode ajustar sem sair desta página.
-        </p>
-        <div className="mt-4 rounded-[28px] border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-4 shadow-sm dark:bg-[#303030] sm:p-5">
-          {!ready ? (
-            <p className="text-sm font-medium text-[var(--app-text-muted)]">A carregar…</p>
-          ) : (
-            <fieldset>
-              <legend className="sr-only">Escolher tema</legend>
-              <div className="flex flex-col gap-2">
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-2)] px-4 py-3.5 transition hover:border-[#c45c2a]/30 dark:bg-[#262626] dark:hover:border-[#e8a87c]/25">
-                  <input
-                    type="radio"
-                    name="theme"
-                    checked={theme === "light"}
-                    onChange={() => setTheme("light")}
-                    className="h-4 w-4 shrink-0 accent-[#c45c2a]"
-                  />
-                  <span className="flex flex-1 items-center gap-2 text-sm font-semibold text-[var(--app-text)]">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
-                      <SunGlyph />
-                    </span>
-                    Claro
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-2)] px-4 py-3.5 transition hover:border-[#c45c2a]/30 dark:bg-[#262626] dark:hover:border-[#e8a87c]/25">
-                  <input
-                    type="radio"
-                    name="theme"
-                    checked={theme === "dark"}
-                    onChange={() => setTheme("dark")}
-                    className="h-4 w-4 shrink-0 accent-[#e8a87c]"
-                  />
-                  <span className="flex flex-1 items-center gap-2 text-sm font-semibold text-[var(--app-text)]">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700 text-slate-100 dark:bg-slate-800 dark:text-slate-200">
-                      <MoonGlyph />
-                    </span>
-                    Escuro
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-          )}
-        </div>
-      </section>
     </div>
   );
 }
@@ -132,20 +91,17 @@ function IconTile({ glyph }: { glyph: ReactNode }) {
 function SettingsCard({
   href,
   footer,
-  samePage,
   icon,
   children,
 }: {
   href: string;
   footer: string;
-  samePage?: boolean;
   icon: ReactNode;
   children: ReactNode;
 }) {
   return (
     <Link
       href={href}
-      aria-current={samePage ? "page" : undefined}
       className="group flex flex-col rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm transition hover:border-[#c45c2a]/35 hover:shadow-md dark:border-white/[0.1] dark:bg-[#2b2b2b] dark:hover:border-[#e8a87c]/30"
     >
       <div className="mb-3 flex items-start gap-3">
@@ -157,12 +113,12 @@ function SettingsCard({
   );
 }
 
-function SunMoonGlyph() {
+function UserCircleCardGlyph() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="1.75" />
+      <circle cx="12" cy="8" r="3.25" stroke="currentColor" strokeWidth="1.75" />
       <path
-        d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+        d="M5.5 19.5c.84-3.1 3.6-5 6.5-5s5.66 1.9 6.5 5"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
@@ -243,34 +199,6 @@ function FolderCardGlyph() {
         d="M3 8a2 2 0 012-2h3.5l1.5 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"
         stroke="currentColor"
         strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SunGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.75" />
-      <path
-        d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function MoonGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M21 14.5A8.5 8.5 0 0110.5 4a8.44 8.44 0 014.35 7.79 4 4 0 006.15 2.71z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>

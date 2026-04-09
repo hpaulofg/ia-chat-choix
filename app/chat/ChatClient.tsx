@@ -393,6 +393,7 @@ export default function ChatClient({
   const [providerRows, setProviderRows] = useState<ProviderRow[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountProfileLoaded, setAccountProfileLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [mediaLightbox, setMediaLightbox] = useState<{ url: string; name: string } | null>(
@@ -400,7 +401,10 @@ export default function ChatClient({
   );
   const [loading, setLoading] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useLayoutEffect(() => {
+    setSidebarOpen(window.innerWidth >= 768);
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [openConvMenuId, setOpenConvMenuId] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -505,7 +509,10 @@ export default function ChatClient({
       .then((d) => {
         if (typeof d.email === "string" && d.email) setAccountEmail(d.email);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        setAccountProfileLoaded(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -1341,17 +1348,20 @@ export default function ChatClient({
 
   const { displayName, firstName, initials } = parseUserFromEmail(accountEmail);
   const emptyChat = !active?.messages.length;
-  const greetingName =
-    displayName && displayName !== "Utilizador"
+  const greetingName = accountProfileLoaded
+    ? displayName && displayName !== "Utilizador"
       ? displayName
       : firstName
         ? firstName
         : initials && initials !== "?"
           ? initials
-          : "";
-  const greetingHeadline = greetingName
-    ? `${timeOfDayGreeting()}, ${greetingName}`
-    : `${timeOfDayGreeting()}!`;
+          : ""
+    : "";
+  const greetingHeadline = !accountProfileLoaded
+    ? `${timeOfDayGreeting()}!`
+    : greetingName
+      ? `${timeOfDayGreeting()}, ${greetingName}`
+      : `${timeOfDayGreeting()}!`;
   const composerPlaceholder = emptyChat
     ? "Como posso ajudar você hoje?"
     : "Responder...";
@@ -1535,11 +1545,25 @@ export default function ChatClient({
 
   return (
     <>
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#fafafa] text-[var(--app-text)] transition-colors duration-200 dark:bg-[#212121]">
+    <div className="flex h-[100dvh] w-full max-w-full min-w-0 overflow-hidden overflow-x-hidden bg-[#fafafa] text-[var(--app-text)] transition-colors duration-200 dark:bg-[#212121]">
+      {sidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          className="fixed inset-0 z-30 bg-black/50 backdrop-blur-[1px] md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      ) : null}
       <aside
-        className={`flex min-h-0 shrink-0 flex-col border-r border-[var(--app-border)] bg-[#f4f4f4] transition-[width,opacity,transform] duration-300 ease-out dark:bg-[#171717] ${
-          sidebarOpen ? "w-[280px] translate-x-0 opacity-100" : "w-0 translate-x-[-4px] overflow-hidden opacity-0"
-        }`}
+        className={`flex min-h-0 flex-col border-r border-[var(--app-border)] bg-[#f4f4f4] dark:bg-[#171717]
+          fixed inset-y-0 left-0 z-40 h-[100dvh] w-[min(280px,calc(100vw-2.5rem))] max-w-[280px] transition-transform duration-300 ease-out
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none md:pointer-events-auto"}
+          md:relative md:inset-auto md:z-auto md:h-auto md:max-w-none md:shrink-0 md:transition-[width,opacity,transform]
+          ${
+            sidebarOpen
+              ? "md:translate-x-0 md:opacity-100 md:w-[280px]"
+              : "md:w-0 md:translate-x-[-4px] md:overflow-hidden md:opacity-0"
+          }`}
       >
         <div className="flex items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 py-2 dark:border-white/[0.08]">
           <span className="flex items-center gap-2 truncate text-sm font-bold tracking-tight text-[var(--app-text)]">
@@ -1701,37 +1725,41 @@ export default function ChatClient({
         </nav>
 
         <div className="shrink-0 border-t border-[var(--app-border)] p-2 dark:border-white/[0.08]">
-          <ChatAccountMenu email={accountEmail} onLogout={logout} />
+          <ChatAccountMenu
+            email={accountEmail}
+            profileLoading={!accountProfileLoaded}
+            onLogout={logout}
+          />
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col bg-transparent">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--app-border)] bg-transparent px-2 sm:px-3">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden bg-transparent">
+        <header className="flex h-12 min-w-0 shrink-0 items-center gap-1.5 border-b border-[var(--app-border)] bg-transparent px-2 sm:gap-2 sm:px-3">
           {!sidebarOpen && (
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-2 text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)]"
+              className="shrink-0 rounded-lg p-2 text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)]"
               aria-label="Abrir menu"
             >
               <MenuIcon />
             </button>
           )}
           <span
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 text-center text-sm font-semibold text-[var(--app-text)] sm:justify-start"
+            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left text-sm font-semibold text-[var(--app-text)] sm:justify-start sm:text-left"
             title={`${composerFooterProviderModel.providerShort} — ${composerFooterProviderModel.modelLabel}`}
           >
             <ProviderBrandIcon
               providerId={provider}
               className="h-5 w-5 shrink-0 text-[var(--app-text)]"
             />
-            <span className="truncate">{headerProviderName}</span>
+            <span className="min-w-0 truncate sm:max-w-none">{headerProviderName}</span>
           </span>
         </header>
 
         <main className="relative z-0 flex min-h-0 flex-1 flex-col bg-transparent">
           <div
-            className={`chat-app-scroll relative z-0 flex-1 overflow-y-auto bg-transparent px-4 py-6 sm:px-6 ${emptyChat ? "flex flex-col" : ""}`}
+            className={`chat-app-scroll relative z-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent px-3 py-6 sm:px-6 ${emptyChat ? "flex flex-col" : ""}`}
           >
             <div
               className={`mx-auto flex w-full max-w-3xl flex-col gap-6 ${emptyChat ? "min-h-0 flex-1 justify-center" : ""}`}
@@ -1915,9 +1943,9 @@ export default function ChatClient({
             </div>
           </div>
 
-          <div className="chat-composer-dock z-30 shrink-0 px-4 pb-5 pt-1 sm:px-6">
-            <div className="chat-composer-dock-inner mx-auto max-w-3xl">
-              <div className="chat-composer-glass">
+          <div className="chat-composer-dock z-30 min-w-0 shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-1 sm:px-6 sm:pb-5">
+            <div className="chat-composer-dock-inner mx-auto max-w-3xl min-w-0">
+              <div className="chat-composer-glass min-w-0 max-w-full overflow-hidden">
                 {pendingAttachments.length > 0 ? (
                   <div className="mb-2 flex flex-wrap gap-2 border-b border-[var(--app-border)] pb-2 dark:border-white/[0.12]">
                     {pendingAttachments.map((a) =>
@@ -1990,7 +2018,7 @@ export default function ChatClient({
                   disabled={loading}
                   className="chat-composer-textarea chat-app-scroll max-h-[280px] min-h-[52px] w-full resize-none overflow-y-auto py-0.5 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-placeholder)]"
                 />
-                <div className="mt-2 flex w-full min-w-0 flex-row flex-wrap items-center gap-2">
+                <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden sm:flex-wrap sm:gap-2 sm:overflow-visible">
                   <label
                     htmlFor={composerFileInputId}
                     title="Anexar ficheiro, imagem ou colar com Ctrl+V na caixa de texto"
@@ -2013,53 +2041,59 @@ export default function ChatClient({
                       <PlusIcon />
                     </span>
                   </label>
-                  <ProviderModelPicker
-                    variant="cascade"
-                    className="min-w-0 flex-1"
-                    providers={providerRows}
-                    provider={provider}
-                    model={model}
-                    onProviderChange={onProviderChange}
-                    onModelChange={setModel}
-                    disabled={loading || !providersLoaded}
-                  />
-                  {speech.supported ? (
+                  <div className="min-w-0 max-w-[min(100%,calc(100vw-11.5rem))] flex-1 sm:max-w-none">
+                    <ProviderModelPicker
+                      variant="cascade"
+                      className="min-w-0 max-w-full"
+                      providers={providerRows}
+                      provider={provider}
+                      model={model}
+                      onProviderChange={onProviderChange}
+                      onModelChange={setModel}
+                      disabled={loading || !providersLoaded}
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+                    {speech.supported ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          speech.listening ? speech.stop() : speech.start(input)
+                        }
+                        disabled={loading}
+                        title={speech.listening ? "Parar ditado" : "Falar para escrever (pt-BR)"}
+                        className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--app-border-strong)] px-2 text-xs font-bold transition hover:bg-[var(--app-hover)] sm:h-auto sm:px-3 sm:py-2 ${
+                          speech.listening
+                            ? "border-red-400/50 text-red-600 dark:text-red-300"
+                            : "text-[var(--app-text-secondary)]"
+                        }`}
+                      >
+                        <MicIcon />
+                        <span className="hidden sm:inline">
+                          {speech.listening ? "A ouvir…" : "Voz"}
+                        </span>
+                      </button>
+                    ) : null}
+                    {loading && (
+                      <button
+                        type="button"
+                        onClick={stopGeneration}
+                        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--app-border-strong)] px-2 text-xs font-bold text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)] sm:h-auto sm:px-3 sm:py-2"
+                      >
+                        <StopIcon />
+                        <span className="hidden sm:inline">Parar</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        speech.listening ? speech.stop() : speech.start(input)
-                      }
-                      disabled={loading}
-                      title={speech.listening ? "Parar ditado" : "Falar para escrever (pt-BR)"}
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--app-border-strong)] px-3 py-2 text-xs font-bold transition hover:bg-[var(--app-hover)] ${
-                        speech.listening
-                          ? "border-red-400/50 text-red-600 dark:text-red-300"
-                          : "text-[var(--app-text-secondary)]"
-                      }`}
+                      onClick={() => void sendMessage()}
+                      disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#141413] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:cursor-not-allowed disabled:opacity-35 sm:gap-2 sm:px-5 sm:py-2.5 dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
                     >
-                      <MicIcon />
-                      {speech.listening ? "A ouvir…" : "Voz"}
+                      <SendIcon />
+                      Enviar
                     </button>
-                  ) : null}
-                  {loading && (
-                    <button
-                      type="button"
-                      onClick={stopGeneration}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--app-border-strong)] px-3 py-2 text-xs font-bold text-[var(--app-text-secondary)] transition hover:bg-[var(--app-hover)]"
-                    >
-                      <StopIcon />
-                      Parar
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void sendMessage()}
-                    disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
-                    className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-full bg-[#141413] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:cursor-not-allowed disabled:opacity-35 dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
-                  >
-                    <SendIcon />
-                    Enviar
-                  </button>
+                  </div>
                 </div>
               </div>
               {composerError ? (
@@ -2070,15 +2104,15 @@ export default function ChatClient({
                   {composerError}
                 </p>
               ) : null}
-              <p className="mt-2 text-center text-[11px] font-semibold text-[var(--app-text-muted)]">
-                <span className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
-                  <span className="rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--app-text)] dark:bg-white/10">
+              <p className="mt-2 max-w-full px-0.5 text-center text-[11px] font-semibold text-[var(--app-text-muted)]">
+                <span className="mx-auto inline-flex max-w-full min-w-0 flex-nowrap items-center justify-center gap-x-1 overflow-hidden sm:flex-wrap sm:gap-y-0.5">
+                  <span className="max-w-[32%] shrink truncate rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--app-text)] sm:max-w-none sm:shrink-0 dark:bg-white/10">
                     {composerFooterProviderModel.providerShort}
                   </span>
-                  <span className="font-normal text-[var(--app-text-muted)]" aria-hidden>
+                  <span className="shrink-0 font-normal text-[var(--app-text-muted)]" aria-hidden>
                     —
                   </span>
-                  <span className="text-[11px] font-semibold text-[var(--app-text-secondary)]">
+                  <span className="min-w-0 max-w-[55%] truncate text-[11px] font-semibold text-[var(--app-text-secondary)] sm:max-w-none">
                     {composerFooterProviderModel.modelLabel}
                   </span>
                 </span>

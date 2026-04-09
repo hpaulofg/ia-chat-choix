@@ -19,8 +19,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Assistente — Claude",
-  description: "Chat e programação com a API Claude (Anthropic).",
+  title: "IA - Studio Choix",
+  description: "Plataforma de IA do Studio Choix.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

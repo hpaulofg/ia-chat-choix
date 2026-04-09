@@ -7,9 +7,12 @@ import { parseUserFromEmail } from "@/lib/user-display";
 
 export function ChatAccountMenu({
   email,
+  profileLoading = false,
   onLogout,
 }: {
   email: string | null;
+  /** Enquanto true, mostra skeleton em vez de derivar nome/email do perfil (evita flash "Utilizador / Sem email"). */
+  profileLoading?: boolean;
   onLogout: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,24 +43,45 @@ export function ChatAccountMenu({
     <div className="relative" ref={rootRef}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (profileLoading) return;
+          setOpen((o) => !o);
+        }}
+        disabled={profileLoading}
         aria-expanded={open}
+        aria-busy={profileLoading}
         aria-haspopup="menu"
-        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--app-hover)]"
+        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--app-hover)] disabled:cursor-default disabled:opacity-100"
       >
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#c45c2a] text-[11px] font-bold text-white dark:bg-[#3b82f6]"
-          aria-hidden
-        >
-          {initials}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-[var(--app-text)]">{displayName}</p>
-          <p className="truncate text-xs font-medium text-[var(--app-text-muted)]">
-            {email ?? "Sem email"}
-          </p>
-        </div>
-        <ChevronIcon className="shrink-0 text-[var(--app-text-muted)]" open={open} />
+        {profileLoading ? (
+          <>
+            <span
+              className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-[var(--app-surface-2)] dark:bg-white/[0.12]"
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1 space-y-2 py-0.5">
+              <div className="h-3.5 w-[7.5rem] max-w-[70%] animate-pulse rounded-md bg-[var(--app-surface-2)] dark:bg-white/[0.12]" />
+              <div className="h-3 w-[10rem] max-w-[85%] animate-pulse rounded-md bg-[var(--app-surface-2)] dark:bg-white/[0.12]" />
+            </div>
+            <ChevronIcon className="shrink-0 text-[var(--app-text-muted)] opacity-40" open={false} />
+          </>
+        ) : (
+          <>
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#c45c2a] text-[11px] font-bold text-white dark:bg-[#3b82f6]"
+              aria-hidden
+            >
+              {initials}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-[var(--app-text)]">{displayName}</p>
+              <p className="truncate text-xs font-medium text-[var(--app-text-muted)]">
+                {email ?? "Sem email"}
+              </p>
+            </div>
+            <ChevronIcon className="shrink-0 text-[var(--app-text-muted)]" open={open} />
+          </>
+        )}
       </button>
 
       {open ? (
