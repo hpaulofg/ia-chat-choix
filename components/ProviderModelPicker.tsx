@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 import { ProviderBrandIcon } from "@/components/ProviderBrandIcon";
 import { PROVIDER_SHORT_LABEL, type ProviderId } from "@/lib/provider-config";
 
@@ -47,9 +55,9 @@ export function ProviderModelPicker({
   const [menuOpen, setMenuOpen] = useState(false);
   const [highlightPid, setHighlightPid] = useState(provider);
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
-  /** true = abre por baixo do trigger (top-full mt-1); false = por cima (bottom-full mb-1) */
-  const [cascadeOpensDownward, setCascadeOpensDownward] = useState(false);
   const [flyoutOpensDownward, setFlyoutOpensDownward] = useState(false);
+  /** fixed + bottom/left em px — menu abre sempre para cima, portado em document.body */
+  const [cascadeMenuStyle, setCascadeMenuStyle] = useState<CSSProperties | null>(null);
   const flyoutTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const flyoutPanelRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -88,20 +96,51 @@ export function ProviderModelPicker({
   }, [openFlyout, closeFlyout]);
 
   useLayoutEffect(() => {
-    if (!menuOpen) return;
-    function measure() {
-      const trigger = cascadeTriggerRef.current;
-      const menu = cascadeMenuRef.current;
-      if (!trigger || !menu) return;
-      const tr = trigger.getBoundingClientRect();
-      const h = menu.offsetHeight;
-      const spaceBelow = window.innerHeight - tr.bottom;
-      setCascadeOpensDownward(spaceBelow >= h + DROPDOWN_EDGE_MARGIN);
+    if (!menuOpen) {
+      setCascadeMenuStyle(null);
+      return;
     }
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [menuOpen, providers]);
+
+    function updateCascadePosition() {
+      const trigger = cascadeTriggerRef.current;
+      if (!trigger) return;
+      const tr = trigger.getBoundingClientRect();
+      const margin = DROPDOWN_EDGE_MARGIN;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const menuWidth = Math.min(380, vw - 2 * margin);
+      let left = tr.left;
+      left = Math.max(margin, Math.min(left, vw - menuWidth - margin));
+      const bottom = vh - tr.top + margin;
+      const spaceAbove = Math.max(0, tr.top - margin * 2);
+      const maxH = Math.max(160, Math.min(420, vh * 0.7, spaceAbove));
+
+      setCascadeMenuStyle({
+        left,
+        bottom,
+        width: menuWidth,
+        maxHeight: maxH,
+      });
+    }
+
+    updateCascadePosition();
+    const raf = window.requestAnimationFrame(() => updateCascadePosition());
+
+    const ro = new ResizeObserver(() => updateCascadePosition());
+    const triggerEl = cascadeTriggerRef.current;
+    if (triggerEl) ro.observe(triggerEl);
+
+    window.addEventListener("resize", updateCascadePosition);
+    window.addEventListener("scroll", updateCascadePosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("resize", updateCascadePosition);
+      window.removeEventListener("scroll", updateCascadePosition, true);
+      setCascadeMenuStyle(null);
+    };
+  }, [menuOpen, providers, highlightPid, provider, model]);
 
   useLayoutEffect(() => {
     if (openFlyout == null) return;
@@ -134,16 +173,18 @@ export function ProviderModelPicker({
     closeMenu();
   };
 
-  const cascadeMenu = menuOpen ? (
-    <div
-      ref={cascadeMenuRef}
-      role="listbox"
-      aria-label="Escolher modelo"
-      className={`pointer-events-auto absolute left-0 z-[500] flex w-[min(380px,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] min-w-0 flex-row overscroll-contain [isolation:isolate] select-none sm:w-max sm:min-w-[320px] sm:max-w-[380px] ${
-        cascadeOpensDownward ? "top-full pt-1" : "bottom-full pb-1"
-      }`}
-    >
-      <div className="grid max-h-[min(70vh,420px)] w-full min-w-0 max-w-full grid-cols-[minmax(88px,110px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] shadow-2xl select-none sm:w-max sm:min-w-[320px] sm:max-w-[380px] sm:grid-cols-[110px_minmax(210px,270px)] dark:border-[#3f3f3f] dark:bg-[#2b2b2b]">
+  const cascadeMenuNode =
+    menuOpen && typeof document !== "undefined" ? (
+      <div
+        ref={cascadeMenuRef}
+        role="listbox"
+        aria-label="Escolher modelo"
+        style={
+          cascadeMenuStyle ?? { position: "fixed", left: 0, bottom: 0, visibility: "hidden", zIndex: 200 }
+        }
+        className="pointer-events-auto fixed z-[200] flex min-w-0 max-w-[calc(100vw-1.5rem)] flex-row overflow-hidden overscroll-contain [isolation:isolate] select-none sm:min-w-[320px]"
+      >
+        <div className="grid max-h-full min-h-0 w-full min-w-0 max-w-full grid-cols-[minmax(88px,110px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] shadow-2xl select-none sm:w-max sm:min-w-[320px] sm:max-w-[380px] sm:grid-cols-[110px_minmax(210px,270px)] dark:border-[#3f3f3f] dark:bg-[#2b2b2b]">
         <div className="flex min-h-0 flex-col gap-0 overflow-y-auto overflow-x-hidden border-r border-[var(--app-border)] px-1 py-2 dark:border-white/[0.08]">
           <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
             Provedor
@@ -232,11 +273,16 @@ export function ProviderModelPicker({
         </div>
       </div>
     </div>
-  ) : null;
+    ) : null;
+
+  const cascadeMenu =
+    cascadeMenuNode && typeof document !== "undefined"
+      ? createPortal(cascadeMenuNode, document.body)
+      : null;
 
   if (variant === "cascade") {
     return (
-      <div className={`relative z-10 min-w-0 ${className}`}>
+      <div className={`min-w-0 ${className}`}>
         <button
           ref={cascadeTriggerRef}
           type="button"

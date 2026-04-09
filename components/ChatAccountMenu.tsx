@@ -5,12 +5,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatTheme } from "@/hooks/use-chat-theme";
 import { parseUserFromEmail } from "@/lib/user-display";
 
+function initialsFromFullName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const a = parts[0][0] ?? "";
+    const b = parts[1][0] ?? "";
+    return (a + b).toUpperCase();
+  }
+  const w = parts[0] ?? "";
+  if (w.length >= 2) return w.slice(0, 2).toUpperCase();
+  const c = (w[0] ?? "?").toUpperCase();
+  return c + c;
+}
+
 export function ChatAccountMenu({
   email,
+  fullName = null,
   profileLoading = false,
   onLogout,
 }: {
   email: string | null;
+  /** Nome do perfil (GET /api/auth/me); tem prioridade sobre o nome derivado do email. */
+  fullName?: string | null;
   /** Enquanto true, mostra skeleton em vez de derivar nome/email do perfil (evita flash "Utilizador / Sem email"). */
   profileLoading?: boolean;
   onLogout: () => void | Promise<void>;
@@ -19,6 +35,9 @@ export function ChatAccountMenu({
   const rootRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme, ready } = useChatTheme();
   const { displayName, initials } = parseUserFromEmail(email);
+  const trimmedFull = fullName?.trim() ?? "";
+  const footerDisplayName = trimmedFull || displayName;
+  const footerInitials = trimmedFull ? initialsFromFullName(trimmedFull) : initials;
   const isDark = theme === "dark";
 
   const close = useCallback(() => setOpen(false), []);
@@ -71,10 +90,10 @@ export function ChatAccountMenu({
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#c45c2a] text-[11px] font-bold text-white dark:bg-[#3b82f6]"
               aria-hidden
             >
-              {initials}
+              {footerInitials}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-[var(--app-text)]">{displayName}</p>
+              <p className="truncate text-sm font-semibold text-[var(--app-text)]">{footerDisplayName}</p>
               <p className="truncate text-xs font-medium text-[var(--app-text-muted)]">
                 {email ?? "Sem email"}
               </p>
@@ -95,7 +114,7 @@ export function ChatAccountMenu({
                 {email}
               </p>
             ) : (
-              <p className="truncate text-[13px] font-semibold text-[var(--app-text)]">{displayName}</p>
+              <p className="truncate text-[13px] font-semibold text-[var(--app-text)]">{footerDisplayName}</p>
             )}
           </div>
 

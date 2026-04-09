@@ -8,6 +8,14 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
+type AdminUsageRow = {
+  userEmail: string;
+  totalTokens: number;
+  totalCostUsd: number;
+  messageCount: number;
+  conversationCount: number;
+};
 import {
   readModelUsageStats,
   readTokenDayHistory,
@@ -80,8 +88,55 @@ function subscribeNoop() {
 
 export default function SettingsUsagePage() {
   const [tick, setTick] = useState(0);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [adminUsage, setAdminUsage] = useState<{
+    rows: AdminUsageRow[];
+    grandTotalTokens: number;
+    grandTotalCostUsd: number;
+  } | null>(null);
+  const [adminErr, setAdminErr] = useState("");
+  const [adminLoading, setAdminLoading] = useState(false);
   const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  useEffect(() => {
+    void fetch("/api/auth/me")
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setIsAdmin(false);
+          return;
+        }
+        setIsAdmin(Boolean(d.isAdmin));
+      })
+      .catch(() => setIsAdmin(false));
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin !== true) return;
+    setAdminLoading(true);
+    setAdminErr("");
+    void fetch("/api/usage/admin")
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setAdminErr(typeof d.error === "string" ? d.error : "Erro ao carregar uso agregado.");
+          setAdminUsage(null);
+          return;
+        }
+        const rows = Array.isArray(d.rows) ? (d.rows as AdminUsageRow[]) : [];
+        setAdminUsage({
+          rows,
+          grandTotalTokens: Number(d.grandTotalTokens) || 0,
+          grandTotalCostUsd: Number(d.grandTotalCostUsd) || 0,
+        });
+      })
+      .catch(() => {
+        setAdminErr("Erro de rede.");
+        setAdminUsage(null);
+      })
+      .finally(() => setAdminLoading(false));
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -159,10 +214,97 @@ export default function SettingsUsagePage() {
           Uso e custos
         </h2>
         <p className="max-w-2xl text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
-          Tokens e custos estimados (USD) por modelo, agregados neste navegador. Os valores usam as mesmas
-          tarifas aproximadas da app; consulte o seu fornecedor para faturação real.
+          {isAdmin === true
+            ? "Como administrador, vê o uso agregado de todos os utilizadores (dados em Supabase) e, abaixo, a vista da sua sessão neste navegador."
+            : "Tokens e custos estimados (USD) por modelo, agregados neste navegador. Os valores usam as mesmas tarifas aproximadas da app; consulte o seu fornecedor para faturação real."}
         </p>
       </header>
+
+      {isAdmin === true ? (
+        <section className="space-y-4">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-[#c45c2a] dark:text-[#e8a87c]">
+            Todos os utilizadores (Supabase)
+          </h3>
+          {adminLoading ? (
+            <p className="text-sm font-medium text-[var(--app-text-muted)]">A carregar dados agregados…</p>
+          ) : adminErr ? (
+            <p className="rounded-xl border border-red-300/60 bg-red-50 px-4 py-3 text-sm font-medium text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+              {adminErr}
+            </p>
+          ) : adminUsage ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard
+                  title="Total de tokens (todos os utilizadores)"
+                  value={`${adminUsage.grandTotalTokens.toLocaleString()} tok`}
+                  sub="Soma de entrada + saída nas mensagens com metadados de uso"
+                />
+                <StatCard
+                  title="Custo estimado total (USD)"
+                  value={`$${adminUsage.grandTotalCostUsd.toFixed(4)}`}
+                  sub="Soma dos custos guardados nas mensagens (estimativa da app)"
+                />
+              </div>
+              <div className="overflow-hidden rounded-[28px] border border-[var(--app-border-strong)] bg-[var(--app-surface)] shadow-sm dark:bg-[#303030]">
+                <div className="border-b border-[var(--app-border)] px-5 py-3 dark:border-white/[0.08] sm:px-6">
+                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
+                    Por utilizador
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--app-border)] text-[11px] font-bold uppercase tracking-wide text-[var(--app-text-muted)] dark:border-white/[0.08]">
+                        <th className="px-4 py-3 sm:px-6">Usuário</th>
+                        <th className="px-2 py-3 text-right">Conversas</th>
+                        <th className="px-2 py-3 text-right">Mensagens</th>
+                        <th className="px-2 py-3 text-right">Tokens totais</th>
+                        <th className="px-4 py-3 text-right sm:px-6">Custo estimado (USD)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminUsage.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-4 py-8 text-center text-[var(--app-text-muted)] sm:px-6"
+                          >
+                            Sem conversas com uso registado no servidor.
+                          </td>
+                        </tr>
+                      ) : (
+                        adminUsage.rows.map((r) => (
+                          <tr
+                            key={r.userEmail}
+                            className="border-b border-[var(--app-border)] last:border-0 dark:border-white/[0.06]"
+                          >
+                            <td className="max-w-[240px] truncate px-4 py-3 font-medium text-[var(--app-text)] sm:px-6">
+                              {r.userEmail}
+                            </td>
+                            <td className="px-2 py-3 text-right tabular-nums">{r.conversationCount}</td>
+                            <td className="px-2 py-3 text-right tabular-nums">{r.messageCount}</td>
+                            <td className="px-2 py-3 text-right tabular-nums">
+                              {r.totalTokens.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums font-medium sm:px-6">
+                              ${r.totalCostUsd.toFixed(4)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-[#c45c2a] dark:text-[#e8a87c]">
+          {isAdmin === true ? "Minha sessão (este navegador)" : "Minha sessão"}
+        </h3>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -326,6 +468,7 @@ export default function SettingsUsagePage() {
           Voltar ao chat
         </Link>
       </p>
+      </section>
     </div>
   );
 }

@@ -10,8 +10,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { ChatAccountMenu } from "@/components/ChatAccountMenu";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { ProviderBrandIcon } from "@/components/ProviderBrandIcon";
@@ -393,6 +394,7 @@ export default function ChatClient({
   const [providerRows, setProviderRows] = useState<ProviderRow[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountFullName, setAccountFullName] = useState<string | null>(null);
   const [accountProfileLoaded, setAccountProfileLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
@@ -407,6 +409,7 @@ export default function ChatClient({
   }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [openConvMenuId, setOpenConvMenuId] = useState<string | null>(null);
+  const [convMenuStyle, setConvMenuStyle] = useState<CSSProperties | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
   const [renameDraftTitle, setRenameDraftTitle] = useState("");
@@ -418,6 +421,8 @@ export default function ChatClient({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const convMenuRef = useRef<HTMLDivElement>(null);
+  const convMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const composerErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechStopRef = useRef<() => void>(() => {});
   const composerFileInputId = useId();
@@ -499,21 +504,31 @@ export default function ChatClient({
 
   const speech = useSpeechDictation(setInput);
 
+  const refreshAccountFromSession = useCallback((markProfileLoaded: boolean) => {
+    void fetch("/api/auth/me")
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) return;
+        if (typeof d.email === "string" && d.email) setAccountEmail(d.email);
+        if (typeof d.fullName === "string" && d.fullName.trim()) {
+          setAccountFullName(d.fullName.trim());
+        } else {
+          setAccountFullName(null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (markProfileLoaded) setAccountProfileLoaded(true);
+      });
+  }, []);
+
   useEffect(() => {
     speechStopRef.current = speech.stop;
   }, [speech.stop]);
 
   useEffect(() => {
-    void fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((d) => {
-        if (typeof d.email === "string" && d.email) setAccountEmail(d.email);
-      })
-      .catch(() => {})
-      .finally(() => {
-        setAccountProfileLoaded(true);
-      });
-  }, []);
+    refreshAccountFromSession(true);
+  }, [refreshAccountFromSession]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -560,6 +575,7 @@ export default function ChatClient({
     function onFocus() {
       setProjects(loadProjectsFromStorage());
       loadProviders();
+      refreshAccountFromSession(false);
     }
     function onLsUpdate() {
       loadProviders();
@@ -572,7 +588,7 @@ export default function ChatClient({
       window.removeEventListener("storage", onLsUpdate);
       window.removeEventListener("ai-chat-ls-update", onLsUpdate);
     };
-  }, [loadProviders]);
+  }, [loadProviders, refreshAccountFromSession]);
 
   useLayoutEffect(() => {
     try {
@@ -697,6 +713,72 @@ export default function ChatClient({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [openConvMenuId]);
+
+  useLayoutEffect(() => {
+    if (!openConvMenuId) {
+      setConvMenuStyle(null);
+      convMenuTriggerRef.current = null;
+      return;
+    }
+
+    function updateConvMenuPosition() {
+      const trigger = convMenuTriggerRef.current;
+      const menu = convMenuRef.current;
+      if (!trigger || !menu) return;
+
+      const tr = trigger.getBoundingClientRect();
+      const margin = 6;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const maxH = Math.max(120, vh - 2 * margin);
+      const mw = Math.min(260, vw - 2 * margin);
+      let left = tr.right - mw;
+      left = Math.max(margin, Math.min(left, vw - mw - margin));
+
+      const naturalH = menu.scrollHeight;
+      const neededH = Math.min(naturalH, maxH);
+      const spaceBelow = vh - tr.bottom - margin;
+      const openUpward = spaceBelow < neededH;
+
+      let top: number;
+      if (openUpward) {
+        top = tr.top - neededH - margin;
+        if (top < margin) top = margin;
+      } else {
+        top = tr.bottom + margin;
+        if (top + neededH > vh - margin) {
+          top = Math.max(margin, vh - margin - neededH);
+        }
+      }
+
+      setConvMenuStyle({
+        left,
+        top,
+        width: mw,
+        maxHeight: maxH,
+      });
+    }
+
+    updateConvMenuPosition();
+    const raf = window.requestAnimationFrame(() => updateConvMenuPosition());
+
+    const menu = convMenuRef.current;
+    const ro =
+      typeof ResizeObserver !== "undefined" && menu
+        ? new ResizeObserver(() => updateConvMenuPosition())
+        : null;
+    if (ro && menu) ro.observe(menu);
+
+    window.addEventListener("resize", updateConvMenuPosition);
+    window.addEventListener("scroll", updateConvMenuPosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", updateConvMenuPosition);
+      window.removeEventListener("scroll", updateConvMenuPosition, true);
+    };
+  }, [openConvMenuId, projects]);
 
   const updateActiveMessages = useCallback(
     (updater: (prev: ChatMessage[]) => ChatMessage[]) => {
@@ -880,13 +962,13 @@ export default function ChatClient({
   }, []);
 
   const editUserMessage = useCallback(
-    (messageId: string) => {
-      if (!activeId || loading) return;
+    (messageId: string, conversationId: string) => {
+      if (!conversationId || loading) return;
       abortRef.current?.abort();
       abortRef.current = null;
       setLoading(false);
 
-      const conv = conversationsRef.current.find((c) => c.id === activeId);
+      const conv = conversationsRef.current.find((c) => c.id === conversationId);
       if (!conv) return;
       const idx = conv.messages.findIndex((m) => m.id === messageId);
       if (idx < 0 || conv.messages[idx]?.role !== "user") return;
@@ -902,7 +984,7 @@ export default function ChatClient({
       flushSync(() => {
         setConversations((prev) =>
           prev.map((c) => {
-            if (c.id !== activeId) return c;
+            if (c.id !== conversationId) return c;
             return {
               ...c,
               messages: truncated,
@@ -913,10 +995,13 @@ export default function ChatClient({
         );
       });
 
+      setActiveId(conversationId);
       setInput(content);
-      queueMicrotask(() => textareaRef.current?.focus());
+      queueMicrotask(() => {
+        textareaRef.current?.focus();
+      });
     },
-    [activeId, loading]
+    [loading]
   );
 
   const regenerateAssistant = useCallback(
@@ -962,6 +1047,12 @@ export default function ChatClient({
   );
 
   const newChat = useCallback(() => {
+    const existing = conversationsRef.current.find((c) => c.messages.length === 0);
+    if (existing) {
+      setActiveId(existing.id);
+      setOpenConvMenuId(null);
+      return;
+    }
     const id = uid();
     const conv: Conversation = {
       id,
@@ -1309,13 +1400,6 @@ export default function ChatClient({
     showComposerError,
   ]);
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void sendMessage();
-    }
-  };
-
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
@@ -1346,25 +1430,18 @@ export default function ChatClient({
   const pinnedF = useMemo(() => pinned.filter(matchConv), [pinned, matchConv]);
   const unpinnedF = useMemo(() => unpinned.filter(matchConv), [unpinned, matchConv]);
 
-  const { displayName, firstName, initials } = parseUserFromEmail(accountEmail);
+  const { displayName, firstName } = parseUserFromEmail(accountEmail);
   const emptyChat = !active?.messages.length;
   const greetingName = accountProfileLoaded
-    ? displayName && displayName !== "Utilizador"
-      ? displayName
-      : firstName
-        ? firstName
-        : initials && initials !== "?"
-          ? initials
-          : ""
+    ? accountFullName ||
+      (displayName && displayName !== "Utilizador" ? displayName : firstName || "")
     : "";
   const greetingHeadline = !accountProfileLoaded
     ? `${timeOfDayGreeting()}!`
     : greetingName
       ? `${timeOfDayGreeting()}, ${greetingName}`
       : `${timeOfDayGreeting()}!`;
-  const composerPlaceholder = emptyChat
-    ? "Como posso ajudar você hoje?"
-    : "Responder...";
+  const composerPlaceholder = emptyChat ? "Como posso ajudar?" : "Responder...";
 
   function renderConvRow(c: Conversation) {
     const isActive = c.id === activeId;
@@ -1441,6 +1518,7 @@ export default function ChatClient({
               </span>
               <button
                 type="button"
+                ref={openConvMenuId === c.id ? convMenuTriggerRef : undefined}
                 data-conv-trigger
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1456,81 +1534,92 @@ export default function ChatClient({
             </div>
           </>
         )}
-        {!isRenaming && openConvMenuId === c.id ? (
-          <div
-            data-conv-menu
-            role="menu"
-            aria-label="Opções da conversa"
-            className="absolute right-1 top-full z-[80] mt-1 min-w-[min(260px,calc(100%-4px))] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] py-1.5 shadow-xl dark:border-[#3a3a3a] dark:bg-[#2a2a2a]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={(e) => {
-                e.stopPropagation();
-                togglePin(c.id, e);
-                setOpenConvMenuId(null);
-              }}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-medium text-[var(--app-text)] transition hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-secondary)]">
-                <PinIcon filled={Boolean(c.pinned)} />
-              </span>
-              {c.pinned ? "Desafixar" : "Fixar"}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={(e) => {
-                e.stopPropagation();
-                startRenameConversation(c.id);
-              }}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-medium text-[var(--app-text)] transition hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-secondary)]">
-                <PencilEditIcon className="h-[17px] w-[17px]" />
-              </span>
-              Renomear
-            </button>
-            <div className="my-1.5 border-t border-[var(--app-border)] dark:border-white/[0.08]" />
-            <p className="px-3 pb-1.5 pt-0.5 text-[10px] font-bold uppercase tracking-wide text-[#c45c2a]/90 dark:text-[#e8a87c]/90">
-              Colocar no grupo
-            </p>
-            <select
-              aria-label="Grupo ou pasta da conversa"
-              value={convProjectId(c) ?? ""}
-              onChange={(e) => {
-                setConversationProject(c.id, e.target.value);
-                setOpenConvMenuId(null);
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="mx-2 mb-1 w-[calc(100%-16px)] cursor-pointer rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] px-2.5 py-2 text-xs font-medium text-[var(--app-text)] outline-none transition focus-visible:ring-2 focus-visible:ring-[#c45c2a]/35 dark:bg-[#1f1f1f]"
-            >
-              <option value="">Fora de grupos</option>
-              {projects.map((proj) => (
-                <option key={proj.id} value={proj.id}>
-                  {proj.name}
-                </option>
-              ))}
-            </select>
-            <div className="my-1.5 border-t border-[var(--app-border)] dark:border-white/[0.08]" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteChat(c.id, e);
-              }}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-semibold text-[#b91c1c] transition hover:bg-red-50 dark:text-[#fca5a5] dark:hover:bg-red-950/25"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[#b91c1c] dark:text-[#fca5a5]">
-                <TrashIcon />
-              </span>
-              Apagar
-            </button>
-          </div>
-        ) : null}
+        {!isRenaming && openConvMenuId === c.id && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                ref={convMenuRef}
+                data-conv-menu
+                role="menu"
+                aria-label="Opções da conversa"
+                style={{
+                  position: "fixed",
+                  zIndex: 100,
+                  visibility: convMenuStyle ? "visible" : "hidden",
+                  pointerEvents: convMenuStyle ? "auto" : "none",
+                  ...convMenuStyle,
+                }}
+                className="z-[100] min-w-[min(260px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] py-1.5 shadow-xl dark:border-[#3a3a3a] dark:bg-[#2a2a2a]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePin(c.id, e);
+                    setOpenConvMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-medium text-[var(--app-text)] transition hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-secondary)]">
+                    <PinIcon filled={Boolean(c.pinned)} />
+                  </span>
+                  {c.pinned ? "Desafixar" : "Fixar"}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startRenameConversation(c.id);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-medium text-[var(--app-text)] transition hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-secondary)]">
+                    <PencilEditIcon className="h-[17px] w-[17px]" />
+                  </span>
+                  Renomear
+                </button>
+                <div className="my-1.5 border-t border-[var(--app-border)] dark:border-white/[0.08]" />
+                <p className="px-3 pb-1.5 pt-0.5 text-[10px] font-bold uppercase tracking-wide text-[#c45c2a]/90 dark:text-[#e8a87c]/90">
+                  Colocar no grupo
+                </p>
+                <select
+                  aria-label="Grupo ou pasta da conversa"
+                  value={convProjectId(c) ?? ""}
+                  onChange={(e) => {
+                    setConversationProject(c.id, e.target.value);
+                    setOpenConvMenuId(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mx-2 mb-1 w-[calc(100%-16px)] cursor-pointer rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-surface-2)] px-2.5 py-2 text-xs font-medium text-[var(--app-text)] outline-none transition focus-visible:ring-2 focus-visible:ring-[#c45c2a]/35 dark:bg-[#1f1f1f]"
+                >
+                  <option value="">Fora de grupos</option>
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="my-1.5 border-t border-[var(--app-border)] dark:border-white/[0.08]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteChat(c.id, e);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[13px] font-semibold text-[#b91c1c] transition hover:bg-red-50 dark:text-[#fca5a5] dark:hover:bg-red-950/25"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[#b91c1c] dark:text-[#fca5a5]">
+                    <TrashIcon />
+                  </span>
+                  Apagar
+                </button>
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     );
   }
@@ -1727,6 +1816,7 @@ export default function ChatClient({
         <div className="shrink-0 border-t border-[var(--app-border)] p-2 dark:border-white/[0.08]">
           <ChatAccountMenu
             email={accountEmail}
+            fullName={accountFullName}
             profileLoading={!accountProfileLoaded}
             onLogout={logout}
           />
@@ -1773,17 +1863,6 @@ export default function ChatClient({
                       Como posso ajudar você hoje?
                     </span>
                   </p>
-                  <p className="mx-auto mt-3 max-w-md text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
-                    Pergunte, peça código ou documentação.{" "}
-                    <kbd className="rounded-md border border-black/[0.1] bg-black/[0.04] px-1.5 py-0.5 font-mono text-xs dark:border-white/[0.12] dark:bg-white/[0.08]">
-                      Enter
-                    </kbd>{" "}
-                    envia;{" "}
-                    <kbd className="rounded-md border border-black/[0.1] bg-black/[0.04] px-1.5 py-0.5 font-mono text-xs dark:border-white/[0.12] dark:bg-white/[0.08]">
-                      Shift+Enter
-                    </kbd>{" "}
-                    nova linha.
-                  </p>
                 </div>
               ) : null}
               {(active?.messages ?? []).map((m) => {
@@ -1829,7 +1908,7 @@ export default function ChatClient({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
-                                editUserMessage(m.id);
+                                if (active?.id) editUserMessage(m.id, active.id);
                               }}
                               title="Editar pergunta"
                               aria-label="Editar pergunta"
@@ -2012,7 +2091,6 @@ export default function ChatClient({
                     }
                   }}
                   onPaste={(e) => void onComposerPaste(e)}
-                  onKeyDown={onKeyDown}
                   placeholder={composerPlaceholder}
                   rows={1}
                   disabled={loading}
