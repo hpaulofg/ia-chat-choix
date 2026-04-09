@@ -415,6 +415,7 @@ export default function ChatClient({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const composerErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechStopRef = useRef<() => void>(() => {});
   const composerFileInputId = useId();
   const hydrated = useRef(false);
   const active = conversations.find((c) => c.id === activeId) ?? null;
@@ -493,6 +494,10 @@ export default function ChatClient({
   }, [defaultModel]);
 
   const speech = useSpeechDictation(setInput);
+
+  useEffect(() => {
+    speechStopRef.current = speech.stop;
+  }, [speech.stop]);
 
   useEffect(() => {
     void fetch("/api/auth/me")
@@ -1268,7 +1273,7 @@ export default function ChatClient({
 
     updateActiveMessages((m) => [...m, userMsg, asstPlaceholder]);
     atSnapshot.forEach(revokePendingPreview);
-    speech.stop();
+    speechStopRef.current();
     setInput("");
     setPendingAttachments([]);
     setLoading(true);
@@ -1295,7 +1300,6 @@ export default function ChatClient({
     runChatStream,
     updateActiveMessages,
     showComposerError,
-    speech,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
