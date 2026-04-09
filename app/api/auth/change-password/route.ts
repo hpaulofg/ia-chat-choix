@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { isAuthenticated } from "@/lib/auth-cookie";
+import { SESSION_EMAIL_COOKIE } from "@/lib/session-email";
 import { effectiveUserStatus, loadAppData, saveAppData } from "@/lib/app-data";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { SESSION_EMAIL_COOKIE } from "@/lib/session-email";
 
 export async function POST(req: Request) {
   if (!(await isAuthenticated())) {
