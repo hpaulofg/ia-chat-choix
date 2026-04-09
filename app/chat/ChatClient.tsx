@@ -29,7 +29,6 @@ import { parseChatCommand, docUserPrompt, type DocKind } from "@/lib/chat-comman
 import {
   readConversationsFromSupabase,
   writeConversationsToSupabase,
-  readConversationsJsonFromStorage,
 } from "@/lib/conversations-storage";
 import {
   appendCoworkInstruction,
@@ -573,18 +572,6 @@ export default function ChatClient({
       /* ignore */
     }
     setProjects(loadProjectsFromStorage());
-    // Tenta migrar localStorage para Supabase na primeira carga
-    const raw = readConversationsJsonFromStorage();
-    const aidLs = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Conversation[];
-        if (Array.isArray(parsed) && parsed.length) {
-          // Migra para Supabase silenciosamente
-          void writeConversationsToSupabase(parsed);
-        }
-      } catch { /* ignore */ }
-    }
     void (async () => {
       try {
         const remote = await readConversationsFromSupabase();
