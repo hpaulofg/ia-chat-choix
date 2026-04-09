@@ -122,6 +122,8 @@ export function useSpeechDictation(setInput: (value: string) => void) {
 
   const stop = useCallback(() => {
     continueRef.current = false;
+    baseRef.current = "";
+    lastDisplayRef.current = "";
     try {
       recRef.current?.stop();
     } catch {

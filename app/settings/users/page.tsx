@@ -30,11 +30,20 @@ type PendingRow = { id: string; email: string; fullName: string; requestedAt: st
 const ROLES: UserRole[] = ["admin", "user"];
 
 export default function SettingsUsersPage() {
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionAuthed, setSessionAuthed] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [users, setUsers] = useState<Row[]>([]);
   const [pendingList, setPendingList] = useState<PendingRow[]>([]);
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdMsg, setPwdMsg] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [pwdPending, setPwdPending] = useState(false);
   const [newRole, setNewRole] = useState<UserRole>("user");
   const [newProviderSet, setNewProviderSet] = useState(
     () => new Set<ProviderId>(["anthropic", "openai", "google", "groq"])
@@ -54,17 +63,22 @@ export default function SettingsUsersPage() {
     () => new Set<ProviderId>(["anthropic", "openai", "google", "groq"])
   );
 
-  const checkAdmin = useCallback(async () => {
+  const checkSession = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setSessionAuthed(false);
         setIsAdmin(false);
         return;
       }
+      setSessionAuthed(true);
       setIsAdmin(Boolean(data.isAdmin));
     } catch {
+      setSessionAuthed(false);
       setIsAdmin(false);
+    } finally {
+      setSessionLoading(false);
     }
   }, []);
 
@@ -109,8 +123,8 @@ export default function SettingsUsersPage() {
   }, []);
 
   useEffect(() => {
-    void checkAdmin();
-  }, [checkAdmin]);
+    void checkSession();
+  }, [checkSession]);
 
   useEffect(() => {
     if (isAdmin !== true) return;
@@ -196,6 +210,7 @@ export default function SettingsUsersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
+          fullName,
           password,
           role: newRole,
           allowedProviders,
@@ -206,6 +221,7 @@ export default function SettingsUsersPage() {
       if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Falha");
       setMsg("Usuário criado.");
       setEmail("");
+      setFullName("");
       setPassword("");
       setNewRole("user");
       setNewProviderSet(new Set(["anthropic", "openai", "google", "groq"]));
@@ -321,6 +337,38 @@ export default function SettingsUsersPage() {
     }
   }
 
+  async function onChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPwdMsg("");
+    setPwdErr("");
+    if (newPwd !== confirmPwd) {
+      setPwdErr("As novas senhas não coincidem.");
+      return;
+    }
+    if (newPwd.length < 6) {
+      setPwdErr("A nova senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    setPwdPending(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Falha");
+      setPwdMsg("Palavra-passe atualizada.");
+      setCurrentPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+    } catch (e) {
+      setPwdErr(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setPwdPending(false);
+    }
+  }
+
   const field =
     "w-full rounded-xl border border-[var(--app-border-strong)] bg-[#fafafa] px-3 py-2.5 text-sm text-[var(--app-text)] placeholder:text-[var(--app-placeholder)] outline-none transition focus:border-[#c45c2a]/50 focus:ring-2 focus:ring-[#c45c2a]/20 dark:bg-[#1f1f1f]";
 
@@ -331,27 +379,27 @@ export default function SettingsUsersPage() {
     return u.allowedProviders.join(", ");
   }
 
-  if (isAdmin === false) {
+  if (sessionLoading) {
     return (
-      <div className="rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-8 text-center shadow-sm dark:bg-[#2b2b2b]">
-        <p className="text-sm font-semibold text-[var(--app-text)]">Acesso restrito</p>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--app-text-secondary)]">
-          Apenas administradores podem gerir usuários.
-        </p>
-        <Link
-          href="/settings"
-          className="mt-6 inline-flex rounded-full bg-[#141413] px-5 py-2.5 text-sm font-bold text-white dark:bg-[#ececec] dark:text-[#141413]"
-        >
-          Voltar à visão geral
-        </Link>
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <p className="text-sm font-medium text-[var(--app-text-muted)]">A carregar…</p>
       </div>
     );
   }
 
-  if (isAdmin === null) {
+  if (!sessionAuthed) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-sm font-medium text-[var(--app-text-muted)]">A carregar…</p>
+      <div className="rounded-2xl border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-8 text-center shadow-sm dark:bg-[#2b2b2b]">
+        <p className="text-sm font-semibold text-[var(--app-text)]">Sessão necessária</p>
+        <p className="mt-2 text-sm leading-relaxed text-[var(--app-text-secondary)]">
+          Inicie sessão para aceder a esta página.
+        </p>
+        <Link
+          href="/login"
+          className="mt-6 inline-flex rounded-full bg-[#141413] px-5 py-2.5 text-sm font-bold text-white dark:bg-[#ececec] dark:text-[#141413]"
+        >
+          Ir para o login
+        </Link>
       </div>
     );
   }
@@ -360,18 +408,101 @@ export default function SettingsUsersPage() {
 
   return (
     <div className="space-y-10">
-      <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
-          Usuários
-        </h2>
-        <p className="max-w-2xl text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
-          Pedidos criados na página de login aparecem abaixo até serem aprovados. Cada conta tem nível{" "}
-          <strong className="font-semibold text-[var(--app-text)]">Administrador</strong> ou{" "}
-          <strong className="font-semibold text-[var(--app-text)]">Usuário</strong>; para utilizadores,
-          os modelos seguem a lista global em Definições → Chaves e modelos.
-        </p>
-      </header>
+      {isAdmin ? (
+        <header className="space-y-2">
+          <h2 className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
+            Usuários
+          </h2>
+          <p className="max-w-2xl text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
+            Pedidos criados na página de login aparecem abaixo até serem aprovados. Cada conta tem nível{" "}
+            <strong className="font-semibold text-[var(--app-text)]">Administrador</strong> ou{" "}
+            <strong className="font-semibold text-[var(--app-text)]">Usuário</strong>; para utilizadores,
+            os modelos seguem a lista global em Definições → Chaves e modelos.
+          </p>
+        </header>
+      ) : (
+        <header className="space-y-2">
+          <h2 className="text-2xl font-semibold tracking-tight text-[var(--app-text)] sm:text-3xl">
+            A minha conta
+          </h2>
+          <p className="max-w-2xl text-sm font-medium leading-relaxed text-[var(--app-text-secondary)]">
+            Altere a sua palavra-passe. A gestão de utilizadores é reservada aos administradores.
+          </p>
+        </header>
+      )}
 
+      <section className="rounded-[28px] border border-[var(--app-border-strong)] bg-[var(--app-surface)] p-5 shadow-sm dark:bg-[#303030] sm:p-6">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-[#c45c2a] dark:text-[#e8a87c]">
+          Minha conta
+        </h3>
+        <p className="mt-1 text-xs font-medium text-[var(--app-text-muted)]">
+          Utilizadores registados no ficheiro de dados podem atualizar a palavra-passe aqui.
+        </p>
+        {pwdErr ? (
+          <p className="mt-4 rounded-xl border border-red-300/60 bg-red-50 px-4 py-3 text-sm font-medium text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+            {pwdErr}
+          </p>
+        ) : null}
+        {pwdMsg ? (
+          <p className="mt-4 rounded-xl border border-emerald-300/60 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+            {pwdMsg}
+          </p>
+        ) : null}
+        <form onSubmit={(e) => void onChangePassword(e)} className="mt-4 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block sm:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
+                Senha atual
+              </span>
+              <input
+                type="password"
+                required
+                value={currentPwd}
+                onChange={(e) => setCurrentPwd(e.target.value)}
+                autoComplete="current-password"
+                className={`${field} mt-1.5`}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
+                Nova senha
+              </span>
+              <input
+                type="password"
+                required
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="Mín. 6 caracteres"
+                autoComplete="new-password"
+                className={`${field} mt-1.5`}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
+                Confirmar nova senha
+              </span>
+              <input
+                type="password"
+                required
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                autoComplete="new-password"
+                className={`${field} mt-1.5`}
+              />
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={pwdPending}
+            className="rounded-full bg-[#141413] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#2d2d2d] disabled:opacity-50 dark:bg-[#ececec] dark:text-[#141413] dark:hover:bg-white"
+          >
+            {pwdPending ? "A guardar…" : "Atualizar palavra-passe"}
+          </button>
+        </form>
+      </section>
+
+      {isAdmin ? (
+        <>
       {err ? (
         <p className="rounded-xl border border-red-300/60 bg-red-50 px-4 py-3 text-sm font-medium text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
           {err}
@@ -508,6 +639,19 @@ export default function SettingsUsersPage() {
                 className={`${field} mt-1.5`}
               />
             </label>
+            <label className="block sm:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
+                Nome completo
+              </span>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Nome do usuário"
+                autoComplete="off"
+                className={`${field} mt-1.5`}
+              />
+            </label>
             <label className="block">
               <span className="text-xs font-bold uppercase tracking-wide text-[var(--app-text-muted)]">
                 Senha
@@ -639,6 +783,17 @@ export default function SettingsUsersPage() {
           </ul>
         )}
       </section>
+        </>
+      ) : (
+        <div className="flex justify-center pt-2">
+          <Link
+            href="/settings"
+            className="inline-flex rounded-full border border-[var(--app-border-strong)] px-5 py-2.5 text-sm font-bold text-[var(--app-text-secondary)]"
+          >
+            Voltar à visão geral
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

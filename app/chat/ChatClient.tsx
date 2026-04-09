@@ -28,6 +28,7 @@ import {
 import { parseChatCommand, docUserPrompt, type DocKind } from "@/lib/chat-commands";
 import {
   readConversationsFromSupabase,
+  readConversationsJsonFromStorage,
   writeConversationsToSupabase,
 } from "@/lib/conversations-storage";
 import {
@@ -573,6 +574,14 @@ export default function ChatClient({
     }
     setProjects(loadProjectsFromStorage());
     void (async () => {
+      let raw: string | null = null;
+      let aidLs: string | null = null;
+      try {
+        raw = readConversationsJsonFromStorage();
+        aidLs = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+      } catch {
+        /* ignore */
+      }
       try {
         const remote = await readConversationsFromSupabase();
         if (remote && Array.isArray(remote) && remote.length) {
@@ -1259,6 +1268,7 @@ export default function ChatClient({
 
     updateActiveMessages((m) => [...m, userMsg, asstPlaceholder]);
     atSnapshot.forEach(revokePendingPreview);
+    speech.stop();
     setInput("");
     setPendingAttachments([]);
     setLoading(true);
@@ -1285,6 +1295,7 @@ export default function ChatClient({
     runChatStream,
     updateActiveMessages,
     showComposerError,
+    speech,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {

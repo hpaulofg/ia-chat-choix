@@ -52,6 +52,7 @@ export async function GET() {
 type CreateBody = {
   email?: string;
   password?: string;
+  fullName?: string;
   role?: UserRole;
   allowedProviders?: ProviderId[] | null;
   userModelAllowlist?: ModelAllowlist | null;
@@ -104,6 +105,9 @@ export async function POST(req: Request) {
       ? null
       : sanitizeModelAllowlist(body.userModelAllowlist);
 
+  const fullNameTrim =
+    typeof body.fullName === "string" ? body.fullName.trim() : "";
+
   const id = randomBytes(12).toString("hex");
   const now = new Date().toISOString();
   const row: AppUser = {
@@ -112,7 +116,7 @@ export async function POST(req: Request) {
     passwordHash: hashPassword(password),
     status: "active",
     approvedAt: now,
-    fullName: email.split("@")[0],
+    fullName: fullNameTrim || email.split("@")[0],
     role,
     allowedProviders: role === "admin" ? null : allowedProviders,
     userModelAllowlist: role === "admin" ? null : userModelAllowlist,
