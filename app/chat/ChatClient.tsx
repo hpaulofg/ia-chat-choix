@@ -498,6 +498,7 @@ export default function ChatClient({
   const [projectsPanelOpen, setProjectsPanelOpen] = useState(true);
   const trackerRef = useRef(new TokenTracker());
   const abortRef = useRef<AbortController | null>(null);
+  const streamBufRef = useRef({ text: "", asstId: "", raf: 0 });
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
@@ -941,9 +942,30 @@ export default function ChatClient({
         : buildSystemPrompt(loadCoworkMemory(), provider);
       let streamed = "";
 
+      const sbuf = streamBufRef.current;
+      sbuf.text = "";
+      sbuf.asstId = asstId;
+
+      const flushStreamBuf = () => {
+        sbuf.raf = 0;
+        if (!sbuf.text) return;
+        const pending = sbuf.text;
+        sbuf.text = "";
+        updateActiveMessages((m) =>
+          m.map((x) =>
+            x.id === sbuf.asstId ? { ...x, content: x.content + pending } : x
+          )
+        );
+      };
+
+      const scheduleFlush = () => {
+        if (!sbuf.raf) {
+          sbuf.raf = requestAnimationFrame(flushStreamBuf);
+        }
+      };
+
       try {
         const clientApiKey = getClientApiKey(provider as ProviderId) ?? undefined;
-        console.log("Calling model:", model, "provider:", provider);
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -999,6 +1021,8 @@ export default function ChatClient({
               if (data.error) {
                 const friendly = mapStreamErrorToUiMessage(data.error);
                 streamError = friendly;
+                if (sbuf.raf) { cancelAnimationFrame(sbuf.raf); sbuf.raf = 0; }
+                sbuf.text = "";
                 updateActiveMessages((m) =>
                   m.map((x) =>
                     x.id === asstId
@@ -1026,19 +1050,17 @@ export default function ChatClient({
               }
               if (data.text) {
                 streamed += data.text;
-                updateActiveMessages((m) =>
-                  m.map((x) =>
-                    x.id === asstId
-                      ? { ...x, content: x.content + data.text }
-                      : x
-                  )
-                );
+                sbuf.text += data.text;
+                scheduleFlush();
               }
             } catch {
               /* ignore partial json */
             }
           }
         }
+
+        if (sbuf.raf) { cancelAnimationFrame(sbuf.raf); sbuf.raf = 0; }
+        if (sbuf.text) flushStreamBuf();
 
         if (!streamError && docSaveMeta && streamed.trim()) {
           pushCoworkDoc({
@@ -1048,6 +1070,8 @@ export default function ChatClient({
           });
         }
       } catch (e) {
+        if (sbuf.raf) { cancelAnimationFrame(sbuf.raf); sbuf.raf = 0; }
+        sbuf.text = "";
         if (e instanceof Error && e.name === "AbortError") {
           updateActiveMessages((m) =>
             m.map((x) =>

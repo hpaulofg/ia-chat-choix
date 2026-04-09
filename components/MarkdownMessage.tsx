@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useDeferredValue, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -118,14 +118,12 @@ export const MarkdownMessage = memo(
   }: Props) {
     const isCode = variant === "codeStudio";
 
-    const deferredStreamContent = useDeferredValue(content);
-
     if (streaming) {
       return (
         <div
           className={`markdown-streaming markdown-msg font-sans text-[15px] leading-relaxed text-[var(--app-text)] ${className}`}
         >
-          <p className="mb-0 max-w-full whitespace-pre-wrap leading-relaxed">{deferredStreamContent}</p>
+          <p className="mb-0 max-w-full whitespace-pre-wrap leading-relaxed">{content}</p>
         </div>
       );
     }
